@@ -5,7 +5,7 @@ import logging
 import mimetypes
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -25,6 +25,7 @@ from app.schemas.photo import (
 )
 from app.services.photo import PhotoService
 from app.dependencies.auth import get_current_active_user
+from app.utils.security import verify_image_access_token
 
 router = APIRouter(prefix="/photos", tags=["Photos"])
 
@@ -395,6 +396,46 @@ async def get_photos(
     photos = await photo_service.get_user_photos(current_user.id, skip, limit)
     
     return await photo_service.get_photos_with_urls(photos)
+
+
+@router.get(
+    "/{photo_id}/image",
+    summary="Stream photo (proxy); requires short-lived token in query t=",
+)
+async def get_photo_image(
+    photo_id: int,
+    t: str = Query(..., description="Short-lived image access token"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    이미지 바이트 스트림 반환. 쿼리 파라미터 t에 서명된 짧은 유효기간 토큰 필요.
+    인가된 사용자에게만 목록 API에서 이 URL이 내려가므로, URL 유출 시에도 토큰 만료 후 접근 불가.
+    """
+    if not t:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+    verified_id = verify_image_access_token(t)
+    if verified_id is None or verified_id != photo_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired token")
+    photo_service = PhotoService(db)
+    photo = await photo_service.get_photo_by_id(photo_id, user_id=None)
+    if not photo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+    try:
+        file_content = await photo_service.download_photo(photo)
+    except Exception as e:
+        logger.error("Photo stream failed", exc_info=e, extra={"event": "photo", "photo_id": photo_id})
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load photo",
+        )
+    from fastapi.responses import Response
+    return Response(
+        content=file_content,
+        media_type=photo.content_type or "application/octet-stream",
+        headers={
+            "Cache-Control": "private, max-age=60",
+        },
+    )
 
 
 @router.get(

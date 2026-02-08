@@ -20,8 +20,7 @@
 
 | 순서 | 태스크 유형 | 설명 |
 |------|-------------|------|
-| 1 | (선택) 파일 배포 | Object Storage 등에서 `.env` 파일을 서버로 내려받는 경우 |
-| 2 | **User Command** | `deploy/apply-env-and-restart.sh` 실행 (아래 사용법 참고) |
+| 1 | **User Command** | `deploy/apply-env-and-restart.sh` 실행. Deploy에서 설정한 환경 변수를 export 한 뒤 실행 (아래 사용법 참고) |
 
 - **Run As**: 서버에서 `photo-api` 서비스 제어 권한이 있는 계정(예: `root`).
 - **Timeout**: 1~2분 정도.
@@ -34,19 +33,12 @@
 
 스크립트는 다음 중 한 가지 방식으로 동작합니다.
 
-1. **배포된 .env 파일이 있는 경우**  
-   - 인자로 경로 지정:  
-     `apply-env-and-restart.sh /path/to/deployed/.env`  
-   - 또는 환경 변수:  
-     `DEPLOY_ENV_FILE=/path/to/.env apply-env-and-restart.sh`  
-   → 해당 파일을 `/opt/photo-api/.env`로 복사 후 서비스 재시작.
+1. **환경 변수를 export 한 뒤 실행 (권장)**  
+   NHN Deploy가 User Command 실행 시 환경 변수를 주입하면, 그대로 export 되어 있으므로 인자 없이 실행하면 됨.  
+   - `apply-env-and-restart.sh`  
+   → 현재 셸에 **export** 된 변수 중 `DATABASE_URL`, `JWT_SECRET_KEY`, `NHN_*`, `LOKI_URL` 등 앱에서 쓰는 이름만 골라 `/opt/photo-api/.env`에 쓰고 서비스 재시작.
 
-2. **NHN Deploy가 스크립트 실행 시 환경 변수를 주입하는 경우**  
-   - 인자/파일 없이 실행:  
-     `apply-env-and-restart.sh`  
-   → 현재 셸에 설정된 환경 변수 중 `DATABASE_URL`, `JWT_SECRET_KEY`, `NHN_*`, `LOKI_URL` 등 앱에서 쓰는 이름만 골라 `/opt/photo-api/.env`에 쓰고 서비스 재시작.
-
-3. **env 파일 내용을 stdin으로 넘기는 경우**  
+2. **.env 내용을 stdin으로 넘기는 경우**  
    - `apply-env-and-restart.sh --stdin`  
    → 표준입력 내용을 `/opt/photo-api/.env`로 저장 후 재시작.
 

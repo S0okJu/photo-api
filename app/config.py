@@ -104,6 +104,16 @@ class Settings(BaseSettings):
     nhn_cdn_encrypt_key: str = Field(default="", description="CDN Token Encryption Key (토큰 생성용)")
     nhn_cdn_token_expire_seconds: int = Field(default=3600, description="Auth Token 유효 시간 (초)")
     
+    # 이미지 접근 제어: 프록시 사용 시 URL 유출되어도 짧은 시간만 유효
+    image_access_use_proxy: bool = Field(
+        default=True,
+        description="True면 이미지를 백엔드 경유(프록시)로 제공하고, URL에 짧은 유효기간 토큰 사용. False면 CDN URL 직접 반환(기존 방식).",
+    )
+    image_token_expire_seconds: int = Field(
+        default=120,
+        description="이미지 접근 토큰 유효 시간(초). image_access_use_proxy=True일 때만 사용.",
+    )
+    
     # NHN Cloud Log & Crash
     nhn_log_appkey: str = Field(default="")
     nhn_log_url: str = Field(

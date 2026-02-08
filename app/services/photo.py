@@ -8,11 +8,13 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models.photo import Photo
 from app.models.user import User
 from app.schemas.photo import PhotoCreate, PhotoUpdate, PhotoWithUrl
 from app.services.nhn_object_storage import get_storage_service
 from app.services.nhn_cdn import get_cdn_service
+from app.utils.security import create_image_access_token
 
 logger = logging.getLogger("app.photo")
 
@@ -208,15 +210,16 @@ class PhotoService:
     
     async def get_photo_with_url(self, photo: Photo) -> PhotoWithUrl:
         """
-        Get photo response with CDN URL.
-        
-        Args:
-            photo: Photo model
-            
-        Returns:
-            PhotoWithUrl schema with CDN URL
+        Get photo response with view URL.
+        If image_access_use_proxy: URL is backend proxy path with short-lived token.
+        Else: CDN URL with auth token (legacy; URL 유출 시 만료 전까지 제3자 열람 가능).
         """
-        cdn_url = await self.cdn.generate_auth_token_url(photo.storage_path)
+        settings = get_settings()
+        if settings.image_access_use_proxy:
+            token = create_image_access_token(photo.id)
+            url = f"/photos/{photo.id}/image?t={token}"
+        else:
+            url = await self.cdn.generate_auth_token_url(photo.storage_path)
         
         return PhotoWithUrl(
             id=photo.id,
@@ -229,7 +232,7 @@ class PhotoService:
             description=photo.description,
             created_at=photo.created_at,
             updated_at=photo.updated_at,
-            url=cdn_url,
+            url=url,
         )
     
     async def get_photos_with_urls(

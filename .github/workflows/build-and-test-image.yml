@@ -22,11 +22,32 @@ env:
 
 jobs:
   build-and-test:
-    name: Build and Test Instance Image
+    name: Build and Test (${{ matrix.region }})
     runs-on: ubuntu-22.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        region: [KR1, KR2]
 
     steps:
+      - name: Set region and region-specific secrets
+        env:
+          REGION: ${{ matrix.region }}
+          NHN_NETWORK_ID_KR1: ${{ secrets.NHN_NETWORK_ID_KR1 }}
+          NHN_NETWORK_ID_KR2: ${{ secrets.NHN_NETWORK_ID_KR2 }}
+          NHN_NETWORK_ID: ${{ secrets.NHN_NETWORK_ID }}
+        run: |
+          echo "NHN_REGION=$REGION" >> $GITHUB_ENV
+          if [ "$REGION" = "KR1" ] && [ -n "$NHN_NETWORK_ID_KR1" ]; then
+            echo "NHN_NETWORK_ID=$NHN_NETWORK_ID_KR1" >> $GITHUB_ENV
+          elif [ "$REGION" = "KR2" ] && [ -n "$NHN_NETWORK_ID_KR2" ]; then
+            echo "NHN_NETWORK_ID=$NHN_NETWORK_ID_KR2" >> $GITHUB_ENV
+          else
+            echo "NHN_NETWORK_ID=$NHN_NETWORK_ID" >> $GITHUB_ENV
+          fi
+          echo "리전: $REGION"
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -55,10 +76,8 @@ jobs:
           NHN_TENANT_ID: ${{ secrets.NHN_TENANT_ID }}
           NHN_USERNAME: ${{ secrets.NHN_USERNAME }}
           NHN_PASSWORD: ${{ secrets.NHN_PASSWORD }}
-          NHN_REGION: ${{ secrets.NHN_REGION }}
           NHN_FLAVOR_NAME: ${{ secrets.NHN_FLAVOR_NAME }}
           NHN_IMAGE_NAME: ${{ secrets.NHN_IMAGE_NAME }}
-          NHN_NETWORK_ID: ${{ secrets.NHN_NETWORK_ID }}
           NHN_SECURITY_GROUP_ID: ${{ secrets.NHN_SECURITY_GROUP_ID }}
           NHN_FLOATING_IP_POOL: ${{ secrets.NHN_FLOATING_IP_POOL }}
           SSH_PUBLIC_KEY: ${{ steps.ssh_key.outputs.public_key_path }}
@@ -386,10 +405,11 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "## 🎉 빌드 및 테스트 요약" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎉 빌드 및 테스트 요약 (${{ matrix.region }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| 항목 | 값 |" >> $GITHUB_STEP_SUMMARY
           echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| 리전 | ${{ matrix.region }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 빌드 인스턴스 ID | ${{ steps.create_instance.outputs.instance_id }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 빌드 인스턴스 IP | ${{ steps.create_instance.outputs.instance_ip }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 생성된 이미지 ID | ${{ steps.create_image.outputs.image_id }} |" >> $GITHUB_STEP_SUMMARY

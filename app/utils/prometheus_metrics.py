@@ -15,9 +15,8 @@ import time
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from prometheus_client import REGISTRY, Counter, Gauge, Histogram
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram, push_to_gateway
 from prometheus_client.core import GaugeMetricFamily
-from prometheus_client.pushgateway import push_to_gateway
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import get_settings

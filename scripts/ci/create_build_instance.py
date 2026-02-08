@@ -11,6 +11,8 @@ from datetime import datetime
 import requests
 
 from nhn_api import (
+    add_floating_ip_to_server,
+    allocate_floating_ip,
     get_headers,
     get_server_ip,
     get_token_and_compute_url,
@@ -29,6 +31,7 @@ def main() -> None:
     image_id = os.environ["NHN_IMAGE_NAME"]
     network_id = os.environ["NHN_NETWORK_ID"]
     security_group_id = os.environ.get("NHN_SECURITY_GROUP_ID", "")
+    floating_ip_pool = os.environ.get("NHN_FLOATING_IP_POOL", "").strip()
     ssh_public_key_path = os.environ["SSH_PUBLIC_KEY"]
 
     with open(ssh_public_key_path, "r") as f:
@@ -117,7 +120,20 @@ def main() -> None:
             if not ip_address:
                 print("❌ IP 주소를 찾을 수 없습니다", file=sys.stderr)
                 sys.exit(1)
-            print(f"✅ 인스턴스 ACTIVE: IP={ip_address}")
+            floating_ip_id = ""
+            print("🌐 Floating IP 할당 중...")
+            try:
+                float_ip, floating_ip_id = allocate_floating_ip(
+                    compute_url, headers, floating_ip_pool or None
+                )
+                add_floating_ip_to_server(
+                    compute_url, headers, server_id, float_ip
+                )
+                ip_address = float_ip
+                print(f"✅ 인스턴스 ACTIVE: Floating IP={ip_address}")
+            except Exception as e:
+                print(f"⚠️  Floating IP 할당/연결 실패: {e}", file=sys.stderr)
+                print(f"   사설 IP로 진행: {ip_address}", file=sys.stderr)
             out = os.environ.get("GITHUB_OUTPUT")
             if out:
                 with open(out, "a") as f:
@@ -127,6 +143,8 @@ def main() -> None:
                     f.write(f"keypair_name={keypair_name}\n")
                     f.write(f"token={token}\n")
                     f.write(f"compute_url={compute_url}\n")
+                    if floating_ip_id:
+                        f.write(f"floating_ip_id={floating_ip_id}\n")
             return
         if status == "ERROR":
             print(f"❌ 인스턴스 생성 실패: {status}", file=sys.stderr)

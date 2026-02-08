@@ -35,17 +35,18 @@ GitHub 저장소 **Settings > Secrets and variables > Actions > Repository secre
 | 6 | `NHN_FLAVOR_NAME` | 인스턴스 타입 이름 (빌드·테스트) | ✅ |
 | 7 | `NHN_IMAGE_NAME` | 빌드용 베이스 이미지 이름 (Ubuntu 등) | ✅ |
 | 8 | `NHN_NETWORK_ID` | VPC/서브넷 ID | ✅ |
-| 9 | `NHN_SECURITY_GROUP_ID` | 보안 그룹 (SSH 22, 8000 허용) | ✅ |
-| 10 | `LOKI_URL` | Promtail → Loki 주소 | ✅ |
-| 11 | `DATABASE_URL` | DB 연결 문자열 (이미지 내 .env) | ✅ |
-| 12 | `JWT_SECRET_KEY` | JWT 서명 키 (이미지 내 .env) | ✅ |
-| 13 | `NHN_OBJECT_STORAGE_ENDPOINT` | Object Storage 엔드포인트 | ✅ |
-| 14 | `NHN_OBJECT_STORAGE_ACCESS_KEY` | Object Storage Access Key | ✅ |
-| 15 | `NHN_OBJECT_STORAGE_SECRET_KEY` | Object Storage Secret Key | ✅ |
-| 16 | `NHN_CDN_DOMAIN` | CDN 도메인 (없으면 빈 값 가능) | 선택 |
-| 17 | `NHN_CDN_AUTH_KEY` | CDN 인증 키 (없으면 빈 값 가능) | 선택 |
+| 9 | `NHN_FLOATING_IP_POOL` | Floating IP 풀 이름 (비우면 사용 가능한 풀 자동 선택) | 선택 |
+| 10 | `NHN_SECURITY_GROUP_ID` | 보안 그룹 (SSH 22, 8000 허용) | ✅ |
+| 11 | `LOKI_URL` | Promtail → Loki 주소 | ✅ |
+| 12 | `DATABASE_URL` | DB 연결 문자열 (이미지 내 .env) | ✅ |
+| 13 | `JWT_SECRET_KEY` | JWT 서명 키 (이미지 내 .env) | ✅ |
+| 14 | `NHN_OBJECT_STORAGE_ENDPOINT` | Object Storage 엔드포인트 | ✅ |
+| 15 | `NHN_OBJECT_STORAGE_ACCESS_KEY` | Object Storage Access Key | ✅ |
+| 16 | `NHN_OBJECT_STORAGE_SECRET_KEY` | Object Storage Secret Key | ✅ |
+| 17 | `NHN_CDN_DOMAIN` | CDN 도메인 (없으면 빈 값 가능) | 선택 |
+| 18 | `NHN_CDN_AUTH_KEY` | CDN 인증 키 (없으면 빈 값 가능) | 선택 |
 
-**총 15~17개.** CDN 미사용 시 16·17은 빈 문자열로 두거나 비워둬도 됩니다 (앱이 비어 있으면 미사용 처리하는 경우).
+**총 15~18개.** GitHub 호스트 러너는 VPC 밖이므로, 빌드/테스트 인스턴스에 **Floating IP**를 자동 할당합니다. 풀 이름을 지정하지 않으면 사용 가능한 풀을 자동으로 선택하며, 정리 시 IP를 해제합니다. CDN 미사용 시 16·17은 빈 문자열로 두거나 비워둬도 됩니다 (앱이 비어 있으면 미사용 처리하는 경우).
 
 ### 1. NHN Cloud 인증 정보
 
@@ -64,6 +65,7 @@ GitHub 저장소 **Settings > Secrets and variables > Actions > Repository secre
 | `NHN_FLAVOR_NAME` | 인스턴스 타입 **이름** | `u2.c2m4` | 스크립트가 API로 UUID 자동 조회 |
 | `NHN_IMAGE_NAME` | **빌드용** 베이스 이미지 **이름** (동일 이름 여러 개면 전체 이름 사용) | `Ubuntu Server 22.04.5 LTS (2025.07.15)` | Public 이미지에서 이름 일치로 UUID 조회. 콘솔 2번째 컬럼(상세 이름)을 넣으면 원하는 것만 선택됨 |
 | `NHN_NETWORK_ID` | **서브넷 ID** (UUID) | `b83863ff-0355-4c73-8c10-0bdf66a69aab` | Console > Network > VPC > 서브넷 상세에서 서브넷 ID 복사 |
+| `NHN_FLOATING_IP_POOL` | Floating IP 풀 이름 (선택) | `public` 또는 비움 | 비우면 API로 풀 목록 조회 또는 기본값(public 등) 순서대로 시도해 자동 선택 |
 | `NHN_SECURITY_GROUP_ID` | 보안 그룹 이름 또는 ID | `default` 또는 UUID | Console > Network > Security Group |
 
 **Flavor / 이미지**: Secret에는 **이름**만 넣으면 됩니다. 스크립트가 API로 UUID를 조회해 사용합니다. 예: `NHN_FLAVOR_NAME` = `u2.c2m4`.  

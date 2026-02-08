@@ -23,9 +23,9 @@ def main() -> None:
     }
 
     image_name = f"photo-api-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    # Nova API: 액션 키는 os-createImage (https://docs.openstack.org/api-ref/compute/)
+    # NHN Cloud는 createImage (camelCase). os-createImage는 "no such action" 400 반환.
     create_image_payload = {
-        "os-createImage": {
+        "createImage": {
             "name": image_name,
             "metadata": {
                 "purpose": "github-actions-build",

@@ -41,6 +41,7 @@ def get_token_and_compute_url(
     if not compute_url:
         print(f"❌ Compute endpoint not found for region: {region}", file=sys.stderr)
         sys.exit(1)
+    # NHN Cloud Compute API: /v2/{tenantId}/... 사용 (https://docs.nhncloud.com/ko/Compute/Instance/ko/public-api/)
     return token, compute_url
 
 

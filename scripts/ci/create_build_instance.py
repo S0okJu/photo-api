@@ -67,6 +67,9 @@ def main() -> None:
         ]
 
     r = requests.post(f"{compute_url}/servers", headers=headers, json=server_payload)
+    if not r.ok:
+        print(f"❌ 인스턴스 생성 API 응답: {r.status_code}", file=sys.stderr)
+        print(r.text[:500] if r.text else "(empty body)", file=sys.stderr)
     r.raise_for_status()
     server_id = r.json()["server"]["id"]
     print(f"✅ 인스턴스 생성 요청 완료: {server_id}")

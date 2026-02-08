@@ -221,6 +221,63 @@ concurrency:
   cancel-in-progress: true
 ```
 
+## 인스턴스 이미지 배포 파이프라인을 더 효율적으로 구축하려면
+
+원래 목적인 **인스턴스 이미지화 + 배포 파이프라인**을 유지하면서, 비용·시간·유지보수를 줄이려면 아래를 권장합니다.
+
+### 1. Job 분리 + 캐시 (권장)
+
+**현재**: 한 job에서 체크아웃 → 인스턴스 생성 → 의존성 다운로드 → 업로드 → 빌드 → 이미지 생성 → 테스트 → 정리까지 모두 순차 실행. 매 실행마다 `pip download`, Promtail 다운로드를 반복합니다.
+
+**개선**:
+- **Job 1 – prepare**: 체크아웃, `pip download -r requirements.txt`, Promtail 다운로드 → **캐시** (cache key: `requirements.txt` 해시 또는 lock 파일). 산출물을 artifact로 업로드.
+- **Job 2 – build-image** (Job 1 의존): artifact 다운로드 → 인스턴스 생성 → 업로드(소스 + artifact) → 빌드 → 스냅샷 → 테스트 → 정리.
+
+효과: 의존성이 바뀌지 않으면 캐시 hit으로 2~3분 절약, artifact 재사용으로 runner 부담 감소.
+
+### 2. 이미지 생성은 필요할 때만 (조건부 실행)
+
+**현재**: `main`/`develop` push, PR 모두에서 동일하게 인스턴스 생성·이미지 생성까지 수행합니다.
+
+**개선**:
+- **실제 이미지 생성(스냅샷 + 테스트 인스턴스)** 은 `main` 브랜치 push 또는 `v*` 태그 push 시에만 실행.
+- **PR / develop**:  
+  - 옵션 A: 로컬/CI에서 **코드 검증만** (pytest, lint) 하고, NHN 인스턴스 이미지 빌드는 하지 않음.  
+  - 옵션 B: 이미지 빌드 job은 `if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')` 로 제한.
+
+효과: PR·develop 빌드 시 인스턴스 비용과 20~30분 대기 시간 제거.
+
+### 3. 재사용 가능한 스크립트로 분리
+
+**현재**: NHN API 호출(인스턴스 생성/중지/이미지 생성/삭제 등)이 워크플로우 안에 700줄 가까운 인라인 Python으로 들어 있습니다.
+
+**개선**:
+- `scripts/nhn-compute-*.py` 또는 **composite action**으로 분리  
+  - 예: `create-instance`, `create-image-from-instance`, `delete-instance`, `cleanup-keypair`  
+- 워크플로우는 `run: python scripts/nhn-compute-create-instance.py` 형태로 호출만 하도록 정리.
+
+효과: 수정·재사용·테스트가 쉬워지고, 멀티 리전/다른 프로젝트에서도 같은 스크립트를 쓸 수 있음.
+
+### 4. Packer 도입 검토 (선택)
+
+NHN Cloud에 **Packer builder** 또는 호환되는 이미지 빌드 방식이 있다면:
+- 이미지 내용을 **Packer 템플릿**으로 정의 (프로비저닝 스크립트, systemd 유닛 등).
+- CI에서는 `packer build photo-api.pkr.hcl` 한 번만 실행.
+- 인스턴스 생성·SSH·스냅샷은 Packer가 처리하고, 워크플로우는 짧게 유지.
+
+효과: 이미지 빌드 과정이 선언적·표준화되고, 로컬에서도 동일하게 `packer build`로 검증 가능.
+
+### 5. 정리: 권장 순서
+
+| 순서 | 내용 | 효과 |
+|------|------|------|
+| 1 | **이미지 생성 조건부화** (main/tag만) | 비용·시간 절감이 가장 큼 |
+| 2 | **오프라인 패키지 캐시 + job 분리** | 반복 실행 시간 단축 |
+| 3 | **NHN API 스크립트 분리** (또는 composite action) | 유지보수·재사용 용이 |
+| 4 | (선택) **Packer** 도입 | 이미지 빌드 표준화 |
+
+현재 `build-and-test-image.yml`은 위 1~3만 적용해도, PR 시에는 테스트만 돌리고 main/tag에서만 이미지를 만들도록 바꾸면 효율적인 **인스턴스 이미지 배포 파이프라인**으로 정리할 수 있습니다.
+
 ## 참고 자료
 
 - 📚 [전체 설정 가이드](../GITHUB_ACTIONS_SETUP.md)

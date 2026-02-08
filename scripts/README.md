@@ -1,6 +1,8 @@
 # Ubuntu 인스턴스 이미지 빌드 스크립트
 
-Ubuntu VM에서 **photo-api** 인스턴스 이미지를 만들 때 순서대로 실행하는 스크립트입니다.  
+Ubuntu VM에서 **photo-api** 인스턴스 이미지를 만들 때 순서대로 실행하는 스크립트입니다.
+
+**CI 전용 스크립트**: GitHub Actions에서 NHN Cloud 인스턴스 생성·이미지 생성·정리를 하는 Python 스크립트는 [scripts/ci/](ci/README.md)에 있습니다.  
 (Packer 등으로 이미지 스냅샷/AMI 생성 시 이 VM에서 아래를 실행한 뒤 스냅샷을 찍으면 됩니다.)
 
 ## 순서 (한 번에 실행)

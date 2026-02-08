@@ -6,17 +6,46 @@
 
 `build-and-test-image.yml` 워크플로우는 다음 작업을 자동으로 수행합니다:
 
-1. **빌드 인스턴스 생성**: NHN Cloud에 Ubuntu 인스턴스를 생성합니다
-2. **오프라인 패키지 준비**: Python 패키지, Promtail 바이너리를 미리 다운로드합니다
-3. **인스턴스 빌드**: 소스 코드와 패키지를 업로드하고 오프라인 환경에서 설치합니다
-4. **이미지 생성**: 빌드된 인스턴스를 이미지로 스냅샷합니다
-5. **테스트 인스턴스 실행**: 생성된 이미지로 새 인스턴스를 시작합니다
-6. **동작 검증**: curl로 API health check 및 metrics 확인
-7. **리소스 정리**: 테스트 후 생성된 리소스를 자동 삭제합니다
+1. **빌드 인스턴스 생성**: NHN Cloud에 Ubuntu 베이스 이미지로 인스턴스를 생성합니다.
+2. **오프라인 패키지 준비**: Python 패키지, Promtail 바이너리를 미리 다운로드합니다.
+3. **인스턴스 빌드**: 소스 코드와 패키지를 업로드하고 오프라인 환경에서 설치합니다.
+4. **이미지 생성(스냅샷)**: 빌드된 인스턴스를 **인스턴스 이미지**로 패킹합니다. (Compute API `createImage` 사용)
+5. **NHN Cloud Image 서비스**: 생성된 이미지는 [NHN Cloud Image 서비스](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/)에 등록됩니다. 이미지 목록 조회·관리는 Image API를 사용합니다.
+6. **테스트 인스턴스 실행**: 위에서 만든 **그 이미지 ID**로 새 인스턴스를 띄워 동작을 검증합니다.
+7. **동작 검증**: curl로 API health check 및 metrics 확인.
+8. **리소스 정리**: 테스트 후 생성된 리소스를 자동 삭제합니다.
+
+즉, **테스트 인스턴스는 “빌드 인스턴스를 이미지로 패킹 → NHN Cloud Image에 등록된 이미지”를 사용해 생성됩니다.** Image API 참고: [Compute > Image > API 가이드](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/).
 
 ## 필수 GitHub Secrets 설정
 
-GitHub 저장소 Settings > Secrets and variables > Actions에서 다음 secrets를 설정해야 합니다.
+GitHub 저장소 **Settings > Secrets and variables > Actions > Repository secrets**에서 아래 항목을 추가하세요.
+
+### 체크리스트 (저장할 Secret 목록)
+
+워크플로우가 실제로 참조하는 Secret만 나열했습니다. 비어 있으면 해당 단계가 실패할 수 있습니다.
+
+| # | Secret 이름 | 용도 | 필수 |
+|---|-------------|------|:----:|
+| 1 | `NHN_AUTH_URL` | Identity API (토큰 발급) | ✅ |
+| 2 | `NHN_TENANT_ID` | 테넌트/프로젝트 ID | ✅ |
+| 3 | `NHN_USERNAME` | API 사용자(이메일 등) | ✅ |
+| 4 | `NHN_PASSWORD` | API 비밀번호 | ✅ |
+| 5 | `NHN_REGION` | 리전 (KR1, KR2 등) | ✅ |
+| 6 | `NHN_FLAVOR_ID` | 인스턴스 타입 (빌드·테스트) | ✅ |
+| 7 | `NHN_IMAGE_ID` | 빌드용 베이스 이미지 (Ubuntu 등) | ✅ |
+| 8 | `NHN_NETWORK_ID` | VPC/서브넷 ID | ✅ |
+| 9 | `NHN_SECURITY_GROUP_ID` | 보안 그룹 (SSH 22, 8000 허용) | ✅ |
+| 10 | `LOKI_URL` | Promtail → Loki 주소 | ✅ |
+| 11 | `DATABASE_URL` | DB 연결 문자열 (이미지 내 .env) | ✅ |
+| 12 | `JWT_SECRET_KEY` | JWT 서명 키 (이미지 내 .env) | ✅ |
+| 13 | `NHN_OBJECT_STORAGE_ENDPOINT` | Object Storage 엔드포인트 | ✅ |
+| 14 | `NHN_OBJECT_STORAGE_ACCESS_KEY` | Object Storage Access Key | ✅ |
+| 15 | `NHN_OBJECT_STORAGE_SECRET_KEY` | Object Storage Secret Key | ✅ |
+| 16 | `NHN_CDN_DOMAIN` | CDN 도메인 (없으면 빈 값 가능) | 선택 |
+| 17 | `NHN_CDN_AUTH_KEY` | CDN 인증 키 (없으면 빈 값 가능) | 선택 |
+
+**총 15~17개.** CDN 미사용 시 16·17은 빈 문자열로 두거나 비워둬도 됩니다 (앱이 비어 있으면 미사용 처리하는 경우).
 
 ### 1. NHN Cloud 인증 정보
 
@@ -32,10 +61,48 @@ GitHub 저장소 Settings > Secrets and variables > Actions에서 다음 secrets
 
 | Secret 이름 | 설명 | 예시 | 확인 방법 |
 |-------------|------|------|----------|
-| `NHN_FLAVOR_ID` | 인스턴스 타입 ID | `u2.c2m4` | Console > Compute > Instance > 인스턴스 생성 시 표시 |
-| `NHN_IMAGE_ID` | 베이스 이미지 ID (Ubuntu 22.04 권장) | `12345678-1234-...` | Console > Compute > Image에서 Ubuntu 이미지 ID 확인 |
+| `NHN_FLAVOR_ID` | 인스턴스 타입 ID (빌드·테스트 공통) | `u2.c2m4` | Console > Compute > Instance > 인스턴스 생성 시 표시 |
+| `NHN_IMAGE_ID` | **빌드용** 베이스 이미지 ID (Ubuntu 22.04 권장) | UUID 형식 | 아래 "Ubuntu 이미지 ID 확인" 참고 |
 | `NHN_NETWORK_ID` | VPC 네트워크 ID | `87654321-4321-...` | Console > Network > VPC > 서브넷 ID 확인 |
 | `NHN_SECURITY_GROUP_ID` | 보안 그룹 이름 또는 ID | `default` 또는 UUID | Console > Network > Security Group |
+
+**Ubuntu 이미지 ID 확인 방법** (리전·프로젝트마다 ID가 다름):
+
+1. **콘솔에서**: NHN Cloud Console 로그인 → **Compute** → **Image** → **Public** 또는 **Private** 이미지 목록에서 이름에 "Ubuntu 22.04" 등이 포함된 이미지를 선택 → 상세에서 **이미지 ID**(UUID) 복사.
+2. **API로 조회** (아래 명령어 사용).
+
+리전(KR1/KR2 등)별로 사용 가능한 이미지 목록이 다르므로, 사용할 리전(`NHN_REGION`)과 동일한 리전의 Image 서비스에서 조회한 ID를 넣어야 합니다.
+
+**Ubuntu 이미지 ID 조회 명령어** (로컬 터미널에서 실행, `jq` 필요):
+
+```bash
+# 1) 환경 변수 설정 (실제 값으로 채우기)
+export NHN_AUTH_URL="https://api-identity-infrastructure.nhncloudservice.com/v2.0"
+export NHN_TENANT_ID="your-tenant-id"
+export NHN_USERNAME="your-username"
+export NHN_PASSWORD="your-password"
+export NHN_REGION="KR1"   # KR1, KR2, JP1, US1 등
+
+# 2) 토큰 발급
+TOKEN=$(curl -s -X POST "${NHN_AUTH_URL}/tokens" \
+  -H "Content-Type: application/json" \
+  -d '{"auth":{"tenantId":"'"$NHN_TENANT_ID"'","passwordCredentials":{"username":"'"$NHN_USERNAME"'","password":"'"$NHN_PASSWORD'"'"}}"}' \
+  | jq -r '.access.token.id')
+
+# 3) Image API URL (리전별: KR1→kr1, KR2→kr2, JP1→jp1, US1→us1)
+# 참고: https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/
+REGION_LOWER=$(echo "$NHN_REGION" | tr '[:upper:]' '[:lower:]')
+IMAGE_URL="https://${REGION_LOWER}-api-image-infrastructure.nhncloudservice.com"
+
+# 4) Public 이미지 목록에서 Ubuntu만 필터해 id, name 출력
+curl -s -H "X-Auth-Token: $TOKEN" \
+  "${IMAGE_URL}/v2/images?visibility=public&limit=100" \
+  | jq -r '.images[] | select(.name | test("Ubuntu"; "i")) | "\(.id)  \(.name)"'
+```
+
+출력 예: `550e8400-e29b-41d4-a716-446655440000  Ubuntu Server 22.04 LTS` → 앞의 UUID를 `NHN_IMAGE_ID` Secret에 넣으면 됩니다. `jq`가 없으면 `brew install jq`(macOS) 또는 해당 OS 패키지 관리자로 설치하세요.
+
+**테스트 인스턴스 이미지**: 테스트 인스턴스는 **빌드 인스턴스를 스냅샷한 이미지**로만 생성됩니다. 워크플로우가 빌드 인스턴스를 패킹해 NHN Cloud Image 서비스에 등록한 뒤, 그 이미지 ID로 테스트 인스턴스를 띄우므로 별도 Secret은 없습니다. Image API(이미지 목록 조회 등)는 [Image API 가이드](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/)를 참고하세요.
 
 **보안 그룹 설정 필수 사항:**
 - 인바운드: SSH (22), HTTP (8000) 허용
@@ -112,9 +179,9 @@ GitHub 저장소 Settings > Secrets and variables > Actions에서 다음 secrets
 
 ### 생성된 이미지 사용
 
-워크플로우가 성공적으로 완료되면 NHN Cloud Console에서 생성된 이미지를 확인할 수 있습니다:
+워크플로우가 성공적으로 완료되면 **NHN Cloud Image 서비스**에 등록된 이미지를 Console 또는 [Image API](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/)로 확인할 수 있습니다:
 
-1. Console > Compute > Image
+1. Console > Compute > Image (또는 Image API `GET /v2/images`로 목록 조회)
 2. 이름 패턴: `photo-api-YYYYMMDD-HHMMSS`
 3. 메타데이터:
    - `purpose`: `github-actions-build`

@@ -20,7 +20,7 @@ def _image_base_url(compute_url: str) -> str:
 
 
 def _volume_url_from_compute(compute_url: str) -> str:
-    """Compute URL에서 Block Storage(Volume) API URL 추론. 카탈로그에 없을 때 fallback."""
+    """Compute URL에서 Block Storage(Volume) API URL 추론. NHN은 Volume v2 사용."""
     parts = compute_url.split("/v2/", 1)
     base = parts[0]
     tenant_id = (parts[1] or "").strip("/") if len(parts) > 1 else ""
@@ -28,7 +28,7 @@ def _volume_url_from_compute(compute_url: str) -> str:
     if replaced == base:
         replaced = base.replace("-instance-", "-volume-")
     if replaced != base and tenant_id:
-        return f"{replaced}/v3/{tenant_id}"
+        return f"{replaced}/v2/{tenant_id}"
     return replaced if replaced != base else ""
 
 

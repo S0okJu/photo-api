@@ -10,7 +10,13 @@ from datetime import datetime
 
 import requests
 
-from nhn_api import get_headers, get_server_ip, get_token_and_compute_url
+from nhn_api import (
+    get_headers,
+    get_server_ip,
+    get_token_and_compute_url,
+    resolve_flavor_uuid,
+    resolve_image_uuid,
+)
 
 
 def main() -> None:
@@ -19,8 +25,8 @@ def main() -> None:
     username = os.environ["NHN_USERNAME"]
     password = os.environ["NHN_PASSWORD"]
     region = os.environ["NHN_REGION"]
-    flavor_id = os.environ["NHN_FLAVOR_ID"]
-    image_id = os.environ["NHN_IMAGE_ID"]
+    flavor_id = os.environ["NHN_FLAVOR_NAME"]
+    image_id = os.environ["NHN_IMAGE_NAME"]
     network_id = os.environ["NHN_NETWORK_ID"]
     security_group_id = os.environ.get("NHN_SECURITY_GROUP_ID", "")
     ssh_public_key_path = os.environ["SSH_PUBLIC_KEY"]
@@ -33,6 +39,10 @@ def main() -> None:
         auth_url, tenant_id, username, password, region
     )
     headers = get_headers(token)
+
+    # 이름으로 넣은 경우 API에서 UUID로 조회 (Flavor / Image)
+    flavor_id = resolve_flavor_uuid(compute_url, headers, flavor_id)
+    image_id = resolve_image_uuid(region, token, image_id)
 
     keypair_name = f"github-actions-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     print(f"🔑 키페어 등록 중: {keypair_name}")
@@ -49,16 +59,32 @@ def main() -> None:
     except requests.exceptions.HTTPError as e:
         print(f"⚠️  키페어 등록 실패 (이미 존재할 수 있음): {e}")
 
+    # 루트 디스크 크기(GB). Linux 최소 10, 문서 예시 20
+    root_volume_size = int(os.environ.get("NHN_ROOT_VOLUME_SIZE_GB", "20"))
     instance_name = f"photo-api-build-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     print(f"🚀 빌드 인스턴스 생성 중: {instance_name}")
+    # NHN Cloud API: block_device_mapping_v2 필수 (https://docs.nhncloud.com/ko/Compute/Instance/ko/public-api/)
+    # networks: 서브넷 ID는 "subnet" 키 사용 (문서 예시 및 GITHUB_ACTIONS_SETUP.md 기준)
     server_payload = {
         "server": {
             "name": instance_name,
-            "flavorRef": flavor_id,
             "imageRef": image_id,
-            "networks": [{"uuid": network_id}],
+            "flavorRef": flavor_id,
+            "networks": [{"subnet": network_id}],
             "key_name": keypair_name,
+            "min_count": 1,
+            "max_count": 1,
             "metadata": {"purpose": "github-actions-build", "app": "photo-api"},
+            "block_device_mapping_v2": [
+                {
+                    "source_type": "image",
+                    "uuid": image_id,
+                    "boot_index": 0,
+                    "volume_size": root_volume_size,
+                    "destination_type": "volume",
+                    "delete_on_termination": True,
+                }
+            ],
         }
     }
     if security_group_id:

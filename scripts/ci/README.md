@@ -11,7 +11,7 @@ GitHub Actions 워크플로우 `build-and-test-image.yml`에서 사용하는 NHN
 | `create_build_instance.py` | 빌드용 인스턴스 생성, ACTIVE 대기 | NHN_* secrets, SSH_PUBLIC_KEY | GITHUB_OUTPUT: instance_id, instance_ip, keypair_name, token, compute_url |
 | `stop_instance.py` | 인스턴스 중지, SHUTOFF 대기 | TOKEN, COMPUTE_URL, INSTANCE_ID | — |
 | `create_image.py` | 인스턴스 → 이미지 생성, active 대기 | TOKEN, COMPUTE_URL, INSTANCE_ID, GIT_SHA | GITHUB_OUTPUT: image_id, image_name |
-| `create_test_instance.py` | 테스트 인스턴스 생성, ACTIVE 대기 | TOKEN, COMPUTE_URL, IMAGE_ID, NHN_NETWORK_ID, NHN_FLAVOR_ID, KEYPAIR_NAME 등 | GITHUB_OUTPUT: test_instance_id, test_instance_ip |
+| `create_test_instance.py` | 테스트 인스턴스 생성, ACTIVE 대기 | TOKEN, COMPUTE_URL, IMAGE_ID, NHN_NETWORK_ID, NHN_FLAVOR_NAME, KEYPAIR_NAME 등 | GITHUB_OUTPUT: test_instance_id, test_instance_ip |
 | `cleanup.py` | 인스턴스·키페어 삭제 | TOKEN, COMPUTE_URL, BUILD_INSTANCE_ID, TEST_INSTANCE_ID, KEYPAIR_NAME | — |
 
 ## 로컬에서 실행 (테스트용)

@@ -32,8 +32,8 @@ GitHub 저장소 **Settings > Secrets and variables > Actions > Repository secre
 | 3 | `NHN_USERNAME` | API 사용자(이메일 등) | ✅ |
 | 4 | `NHN_PASSWORD` | API 비밀번호 | ✅ |
 | 5 | `NHN_REGION` | 리전 (KR1, KR2 등) | ✅ |
-| 6 | `NHN_FLAVOR_ID` | 인스턴스 타입 (빌드·테스트) | ✅ |
-| 7 | `NHN_IMAGE_ID` | 빌드용 베이스 이미지 (Ubuntu 등) | ✅ |
+| 6 | `NHN_FLAVOR_NAME` | 인스턴스 타입 이름 (빌드·테스트) | ✅ |
+| 7 | `NHN_IMAGE_NAME` | 빌드용 베이스 이미지 이름 (Ubuntu 등) | ✅ |
 | 8 | `NHN_NETWORK_ID` | VPC/서브넷 ID | ✅ |
 | 9 | `NHN_SECURITY_GROUP_ID` | 보안 그룹 (SSH 22, 8000 허용) | ✅ |
 | 10 | `LOKI_URL` | Promtail → Loki 주소 | ✅ |
@@ -61,19 +61,13 @@ GitHub 저장소 **Settings > Secrets and variables > Actions > Repository secre
 
 | Secret 이름 | 설명 | 예시 | 확인 방법 |
 |-------------|------|------|----------|
-| `NHN_FLAVOR_ID` | 인스턴스 타입 ID (빌드·테스트 공통) | `u2.c2m4` | Console > Compute > Instance > 인스턴스 생성 시 표시 |
-| `NHN_IMAGE_ID` | **빌드용** 베이스 이미지 ID (Ubuntu 22.04 권장) | UUID 형식 | 아래 "Ubuntu 이미지 ID 확인" 참고 |
-| `NHN_NETWORK_ID` | VPC 네트워크 ID | `87654321-4321-...` | Console > Network > VPC > 서브넷 ID 확인 |
+| `NHN_FLAVOR_NAME` | 인스턴스 타입 **이름** | `u2.c2m4` | 스크립트가 API로 UUID 자동 조회 |
+| `NHN_IMAGE_NAME` | **빌드용** 베이스 이미지 **이름** (동일 이름 여러 개면 전체 이름 사용) | `Ubuntu Server 22.04.5 LTS (2025.07.15)` | Public 이미지에서 이름 일치로 UUID 조회. 콘솔 2번째 컬럼(상세 이름)을 넣으면 원하는 것만 선택됨 |
+| `NHN_NETWORK_ID` | **서브넷 ID** (UUID) | `b83863ff-0355-4c73-8c10-0bdf66a69aab` | Console > Network > VPC > 서브넷 상세에서 서브넷 ID 복사 |
 | `NHN_SECURITY_GROUP_ID` | 보안 그룹 이름 또는 ID | `default` 또는 UUID | Console > Network > Security Group |
 
-**Ubuntu 이미지 ID 확인 방법** (리전·프로젝트마다 ID가 다름):
-
-1. **콘솔에서**: NHN Cloud Console 로그인 → **Compute** → **Image** → **Public** 또는 **Private** 이미지 목록에서 이름에 "Ubuntu 22.04" 등이 포함된 이미지를 선택 → 상세에서 **이미지 ID**(UUID) 복사.
-2. **API로 조회** (아래 명령어 사용).
-
-리전(KR1/KR2 등)별로 사용 가능한 이미지 목록이 다르므로, 사용할 리전(`NHN_REGION`)과 동일한 리전의 Image 서비스에서 조회한 ID를 넣어야 합니다.
-
-**Ubuntu 이미지 ID 조회 명령어** (로컬 터미널에서 실행, `jq` 필요):
+**Flavor / 이미지**: Secret에는 **이름**만 넣으면 됩니다. 스크립트가 API로 UUID를 조회해 사용합니다. 예: `NHN_FLAVOR_NAME` = `u2.c2m4`.  
+**이미지**: `Ubuntu Server 22.04 LTS`처럼 짧게 넣으면 같은 이름이 여러 개일 수 있습니다. **순수 Ubuntu만 쓰려면** 콘솔에 보이는 상세 이름 전체를 넣으세요. 예: `NHN_IMAGE_NAME` = `Ubuntu Server 22.04.5 LTS (2025.07.15)` (NAT/Kafka/CUBRID 등 변형 제외). 사용 가능한 이름 목록을 확인하려면 로컬에서 아래를 실행하세요.
 
 ```bash
 # 1) 환경 변수 설정 (실제 값으로 채우기)
@@ -88,19 +82,25 @@ TOKEN=$(curl -s -X POST "${NHN_AUTH_URL}/tokens" \
   -H "Content-Type: application/json" \
   -d '{"auth":{"tenantId":"'"$NHN_TENANT_ID"'","passwordCredentials":{"username":"'"$NHN_USERNAME"'","password":"'"$NHN_PASSWORD'"'"}}"}' \
   | jq -r '.access.token.id')
+if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then echo "토큰 발급 실패. NHN_AUTH_URL, TENANT_ID, USERNAME, PASSWORD 확인"; exit 1; fi
 
-# 3) Image API URL (리전별: KR1→kr1, KR2→kr2, JP1→jp1, US1→us1)
-# 참고: https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/
 REGION_LOWER=$(echo "$NHN_REGION" | tr '[:upper:]' '[:lower:]')
+COMPUTE_URL="https://${REGION_LOWER}-api-instance-infrastructure.nhncloudservice.com/v2/${NHN_TENANT_ID}"
 IMAGE_URL="https://${REGION_LOWER}-api-image-infrastructure.nhncloudservice.com"
 
-# 4) Public 이미지 목록에서 Ubuntu만 필터해 id, name 출력
+# 3) Flavor 목록 (name 컬럼을 NHN_FLAVOR_NAME 에 넣으면 됨)
+echo "=== Flavor 목록 (NHN_FLAVOR_NAME 에 name 사용, 예: u2.c2m4) ==="
+curl -s -H "X-Auth-Token: $TOKEN" "${COMPUTE_URL}/flavors/detail" \
+  | jq -r '.flavors[] | "\(.name)  vCPU=\(.vcpus) RAM=\(.ram)MB"'
+
+# 4) Ubuntu 이미지 목록 (name 컬럼을 NHN_IMAGE_NAME 에 넣으면 됨)
+echo "=== Ubuntu 이미지 (NHN_IMAGE_NAME 에 name 사용, 예: Ubuntu 22.04) ==="
 curl -s -H "X-Auth-Token: $TOKEN" \
   "${IMAGE_URL}/v2/images?visibility=public&limit=100" \
-  | jq -r '.images[] | select(.name | test("Ubuntu"; "i")) | "\(.id)  \(.name)"'
+  | jq -r '.images[] | select(.name | test("Ubuntu"; "i")) | .name'
 ```
 
-출력 예: `550e8400-e29b-41d4-a716-446655440000  Ubuntu Server 22.04 LTS` → 앞의 UUID를 `NHN_IMAGE_ID` Secret에 넣으면 됩니다. `jq`가 없으면 `brew install jq`(macOS) 또는 해당 OS 패키지 관리자로 설치하세요.
+`jq`가 없으면 `brew install jq`(macOS) 또는 해당 OS 패키지 관리자로 설치하세요.
 
 **테스트 인스턴스 이미지**: 테스트 인스턴스는 **빌드 인스턴스를 스냅샷한 이미지**로만 생성됩니다. 워크플로우가 빌드 인스턴스를 패킹해 NHN Cloud Image 서비스에 등록한 뒤, 그 이미지 ID로 테스트 인스턴스를 띄우므로 별도 Secret은 없습니다. Image API(이미지 목록 조회 등)는 [Image API 가이드](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/)를 참고하세요.
 

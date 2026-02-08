@@ -56,8 +56,8 @@ jobs:
           NHN_USERNAME: ${{ secrets.NHN_USERNAME }}
           NHN_PASSWORD: ${{ secrets.NHN_PASSWORD }}
           NHN_REGION: ${{ secrets.NHN_REGION }}
-          NHN_FLAVOR_ID: ${{ secrets.NHN_FLAVOR_ID }}
-          NHN_IMAGE_ID: ${{ secrets.NHN_IMAGE_ID }}
+          NHN_FLAVOR_NAME: ${{ secrets.NHN_FLAVOR_NAME }}
+          NHN_IMAGE_NAME: ${{ secrets.NHN_IMAGE_NAME }}
           NHN_NETWORK_ID: ${{ secrets.NHN_NETWORK_ID }}
           NHN_SECURITY_GROUP_ID: ${{ secrets.NHN_SECURITY_GROUP_ID }}
           SSH_PUBLIC_KEY: ${{ steps.ssh_key.outputs.public_key_path }}
@@ -271,7 +271,7 @@ jobs:
           COMPUTE_URL: ${{ steps.create_instance.outputs.compute_url }}
           IMAGE_ID: ${{ steps.create_image.outputs.image_id }}
           NHN_NETWORK_ID: ${{ secrets.NHN_NETWORK_ID }}
-          NHN_FLAVOR_ID: ${{ secrets.NHN_FLAVOR_ID }}
+          NHN_FLAVOR_NAME: ${{ secrets.NHN_FLAVOR_NAME }}
           NHN_SECURITY_GROUP_ID: ${{ secrets.NHN_SECURITY_GROUP_ID }}
           KEYPAIR_NAME: ${{ steps.create_instance.outputs.keypair_name }}
         run: python3 scripts/ci/create_test_instance.py

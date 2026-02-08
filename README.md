@@ -322,7 +322,7 @@ GitHub Actions 워크플로우를 사용하면 자동으로 인스턴스 이미�
    ```bash
    # NHN Cloud 인증 정보
    NHN_AUTH_URL, NHN_TENANT_ID, NHN_USERNAME, NHN_PASSWORD
-   NHN_REGION, NHN_FLAVOR_ID, NHN_IMAGE_ID, NHN_NETWORK_ID
+   NHN_REGION, NHN_FLAVOR_NAME, NHN_IMAGE_NAME, NHN_NETWORK_ID
    
    # Observability (메트릭은 Prometheus가 /metrics 스크래핑)
    LOKI_URL

@@ -304,6 +304,10 @@ sudo ./scripts/build-image.sh
 
 자세한 내용은 [scripts/README.md](scripts/README.md)를 참조하세요.
 
+#### NHN Deploy로 환경 변수 배포
+
+이미지로 만든 인스턴스에 **리전별 환경 변수**를 넣고 서비스를 재시작하려면 [deploy/README.md](deploy/README.md)를 참고하세요. `deploy/apply-env-and-restart.sh`를 NHN Deploy User Command로 실행하면 됩니다.
+
 #### GitHub Actions를 통한 자동 빌드
 
 GitHub Actions 워크플로우를 사용하면 자동으로 인스턴스 이미지를 빌드하고 테스트할 수 있습니다.

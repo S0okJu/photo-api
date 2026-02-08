@@ -78,13 +78,14 @@ def main() -> None:
             "min_count": 1,
             "max_count": 1,
             "metadata": {"purpose": "github-actions-build", "app": "photo-api"},
+            # destination_type="local" 이어야 NHN에서 인스턴스→이미지 생성 가능 (volume이면 400)
             "block_device_mapping_v2": [
                 {
                     "source_type": "image",
                     "uuid": image_id,
                     "boot_index": 0,
                     "volume_size": root_volume_size,
-                    "destination_type": "volume",
+                    "destination_type": "local",
                     "delete_on_termination": True,
                 }
             ],

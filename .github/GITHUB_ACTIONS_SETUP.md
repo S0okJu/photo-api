@@ -223,6 +223,12 @@ curl -s -H "X-Auth-Token: $TOKEN" \
 2. NHN Cloud 콘솔에서 이미지 생성 상태 확인
 3. 디스크 용량이 충분한지 확인
 
+**증상**: `An image can't be created from instance that used block storage volume` (400)
+
+**원인**: NHN은 루트 디스크가 **블록 스토리지(volume)**인 인스턴스에서는 이미지 생성을 허용하지 않습니다.
+
+**해결**: CI 스크립트는 루트 디스크를 `destination_type="local"`로 생성합니다. **U2** 등 로컬 디스크를 지원하는 플레이버를 사용해야 합니다. 일부 인스턴스 타입만 로컬 루트를 지원하므로, 해당 타입으로 `NHN_FLAVOR_NAME`을 설정하세요.
+
 ### Health Check 실패
 
 **증상**: "Test image with curl" 단계에서 실패

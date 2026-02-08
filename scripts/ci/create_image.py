@@ -23,8 +23,9 @@ def main() -> None:
     }
 
     image_name = f"photo-api-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    # Nova API: 액션 키는 os-createImage (https://docs.openstack.org/api-ref/compute/)
     create_image_payload = {
-        "createImage": {
+        "os-createImage": {
             "name": image_name,
             "metadata": {
                 "purpose": "github-actions-build",
@@ -39,6 +40,9 @@ def main() -> None:
         headers=headers,
         json=create_image_payload,
     )
+    if not r.ok:
+        print(f"❌ 이미지 생성 API 응답: {r.status_code}", file=sys.stderr)
+        print(r.text[:800] if r.text else "(empty)", file=sys.stderr)
     r.raise_for_status()
 
     image_url = compute_url.replace("/compute/", "/image/")

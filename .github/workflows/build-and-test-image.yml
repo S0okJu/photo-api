@@ -249,6 +249,34 @@ jobs:
           
           echo "✅ 인스턴스 빌드 완료"
 
+      - name: Start services and verify API before image creation
+        run: |
+          echo "🔄 서비스 시작 대기 중..."
+          ssh -o StrictHostKeyChecking=no \
+            -i ${{ steps.ssh_key.outputs.private_key_path }} \
+            ubuntu@${{ steps.create_instance.outputs.instance_ip }} \
+            "sudo systemctl start photo-api.service && sleep 5"
+          
+          echo "🔍 빌드 인스턴스 API 헬스체크 (Floating IP:8000)..."
+          max_attempts=30
+          attempt=0
+          INSTANCE_IP="${{ steps.create_instance.outputs.instance_ip }}"
+          
+          while [ $attempt -lt $max_attempts ]; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "http://${INSTANCE_IP}:8000/health" || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "✅ API 정상 응답 (HTTP $code) — 이미지 생성 진행"
+              exit 0
+            fi
+            attempt=$((attempt + 1))
+            echo "  시도 $attempt/$max_attempts: HTTP $code, 대기 중..."
+            sleep 10
+          done
+          
+          echo "❌ 이미지 생성 중단: http://${INSTANCE_IP}:8000/health 가 정상(200)이 아닙니다."
+          echo "   서비스 로그 확인 후 재시도하세요."
+          exit 1
+
       - name: Stop instance before creating image
         env:
           TOKEN: ${{ steps.create_instance.outputs.token }}

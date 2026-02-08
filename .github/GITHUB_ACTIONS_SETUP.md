@@ -4,17 +4,17 @@
 
 ## 개요
 
-`build-and-test-image.yml` 워크플로우는 **KR1, KR2 두 리전**에 대해 각각 병렬로 빌드·이미지 생성을 수행합니다 (matrix 전략). **애플리케이션 테스트(테스트 인스턴스 + curl)는 KR1에서만** 실행하고, **create image는 KR1·KR2 모두** 실행해 두 리전에 이미지를 만듭니다.
+`build-and-test-image.yml` 워크플로우는 **인스턴스 생성·빌드·검증은 KR1에서만** 하고, **이미지 생성 API는 KR1에 한 번 호출한 뒤 같은 이미지를 KR2 Image API로 복사**합니다. KR2에는 인스턴스를 만들지 않습니다.
 
-1. **빌드 인스턴스 생성**: 리전별로 NHN Cloud에 Ubuntu 베이스 이미지로 인스턴스를 생성합니다.
+1. **빌드 인스턴스 생성 (KR1만)**: NHN Cloud KR1에 Ubuntu 베이스 이미지로 인스턴스를 생성합니다.
 2. **오프라인 패키지 준비**: Python 패키지, Promtail 바이너리를 미리 다운로드합니다.
-3. **인스턴스 빌드**: 소스 코드와 패키지를 업로드하고 오프라인 환경에서 설치합니다.
-4. **이미지 생성(스냅샷)**: 빌드된 인스턴스를 **인스턴스 이미지**로 패킹합니다. (Compute API `createImage` 사용) — **KR1, KR2 모두 수행**
-5. **NHN Cloud Image 서비스**: 생성된 이미지는 [NHN Cloud Image 서비스](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/)에 등록됩니다.
-6. **테스트 인스턴스·동작 검증**: **KR1만** 위에서 만든 이미지로 테스트 인스턴스를 띄우고, curl로 API health check 및 metrics 확인.
-7. **리소스 정리**: 빌드/테스트 인스턴스 및 Floating IP 등 자동 삭제.
+3. **인스턴스 빌드 (KR1)**: 소스 코드와 패키지를 업로드하고 오프라인 환경에서 설치합니다.
+4. **이미지 생성 (KR1)**: 빌드된 인스턴스를 **인스턴스 이미지**로 패킹합니다. (Compute/Volume API 사용)
+5. **이미지 복사 (KR2)**: KR1 Image API에서 이미지 파일을 받아 KR2 Image API로 업로드합니다. (`scripts/ci/copy_image_to_region.py`)
+6. **테스트 인스턴스·동작 검증 (KR1만)**: KR1에서 만든 이미지로 테스트 인스턴스를 띄우고, curl로 API health check 및 metrics 확인.
+7. **리소스 정리**: KR1 빌드/테스트 인스턴스 및 Floating IP 등 자동 삭제.
 
-즉, **테스트는 KR1 테스트 환경에서만 하고, 이미지는 KR1·KR2 둘 다 생성**합니다. Image API 참고: [Compute > Image > API 가이드](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/).
+즉, **검증은 KR1 테스트 환경에서만 하고, 이미지 생성은 KR1에 한 번 요청한 뒤 동일 이미지를 KR1·KR2 Image 서비스에 올립니다.** Image API 참고: [Compute > Image > API 가이드](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/).
 
 ## 필수 GitHub Secrets 설정
 
@@ -30,12 +30,11 @@ GitHub 저장소 **Settings > Secrets and variables > Actions > Repository secre
 | 2 | `NHN_TENANT_ID` | 테넌트/프로젝트 ID | ✅ |
 | 3 | `NHN_USERNAME` | API 사용자(이메일 등) | ✅ |
 | 4 | `NHN_PASSWORD` | API 비밀번호 | ✅ |
-| 5 | `NHN_REGION` | 리전 (단일 리전 실행 시 사용, matrix 사용 시 무시) | 선택 |
+| 5 | `NHN_REGION` | 워크플로에서 KR1으로 고정 (Secret 불필요) | - |
 | 6 | `NHN_FLAVOR_NAME` | 인스턴스 타입 이름 (빌드·테스트) | ✅ |
 | 7 | `NHN_IMAGE_NAME` | 빌드용 베이스 이미지 이름 (Ubuntu 등) | ✅ |
-| 8 | `NHN_NETWORK_ID` | VPC/서브넷 ID (리전별 미설정 시 공통 값) | ✅ |
-| 8a | `NHN_NETWORK_ID_KR1` | KR1 전용 서브넷 ID (설정 시 KR1 job에서 이 값 사용) | 선택 |
-| 8b | `NHN_NETWORK_ID_KR2` | KR2 전용 서브넷 ID (설정 시 KR2 job에서 이 값 사용) | 선택 |
+| 8 | `NHN_NETWORK_ID` | KR1 VPC/서브넷 ID (공통으로 쓸 때) | ✅ |
+| 8a | `NHN_NETWORK_ID_KR1` | KR1 전용 서브넷 ID (있으면 이 값 사용) | 선택 |
 | 9 | `NHN_FLOATING_IP_POOL` | Floating IP 풀 이름 (비우면 사용 가능한 풀 자동 선택) | 선택 |
 | 10 | `NHN_SECURITY_GROUP_ID` | 보안 그룹 (SSH 22, 8000 허용) | ✅ |
 | 11 | `LOKI_URL` | Promtail → Loki 주소 | ✅ |
@@ -57,7 +56,7 @@ GitHub 저장소 **Settings > Secrets and variables > Actions > Repository secre
 | `NHN_TENANT_ID` | 테넌트 ID (프로젝트 ID) | `a1b2c3d4e5f6...` |
 | `NHN_USERNAME` | NHN Cloud API 사용자 이름 | `user@example.com` |
 | `NHN_PASSWORD` | NHN Cloud API 비밀번호 | `your-password` |
-| `NHN_REGION` | 리전 이름 (단일 리전 수동 실행 시만 사용) | 이 워크플로우는 matrix로 **KR1**, **KR2**를 자동 설정하므로 Secret 불필요 |
+| `NHN_REGION` | 리전 이름 | 워크플로에서 **KR1** 고정(빌드·검증·이미지 생성), 이미지는 KR2로 복사. Secret 불필요 |
 
 ### 2. NHN Cloud 인스턴스 설정
 
@@ -67,7 +66,7 @@ GitHub 저장소 **Settings > Secrets and variables > Actions > Repository secre
 | `NHN_IMAGE_NAME` | **빌드용** 베이스 이미지 **이름** (동일 이름 여러 개면 전체 이름 사용) | `Ubuntu Server 22.04.5 LTS (2025.07.15)` | Public 이미지에서 이름 일치로 UUID 조회. 콘솔 2번째 컬럼(상세 이름)을 넣으면 원하는 것만 선택됨 |
 | `NHN_NETWORK_ID` | **서브넷 ID** (UUID). KR1/KR2 공통이면 이것만 설정 | `b83863ff-0355-4c73-8c10-0bdf66a69aab` | Console > Network > VPC > 서브넷 상세에서 서브넷 ID 복사 |
 | `NHN_NETWORK_ID_KR1` | KR1 전용 서브넷 ID (선택) | 리전별 VPC 사용 시 KR1 서브넷 UUID | 설정 시 KR1 job에서 이 값 사용 |
-| `NHN_NETWORK_ID_KR2` | KR2 전용 서브넷 ID (선택) | 리전별 VPC 사용 시 KR2 서브넷 UUID | 설정 시 KR2 job에서 이 값 사용 |
+| `NHN_NETWORK_ID_KR2` | KR2 서브넷 (현재 미사용) | 워크플로는 KR2에 인스턴스를 생성하지 않고 이미지만 복사함 | — |
 | `NHN_FLOATING_IP_POOL` | Floating IP 풀 이름 (선택) | `public` 또는 비움 | 비우면 API로 풀 목록 조회 또는 기본값(public 등) 순서대로 시도해 자동 선택 |
 | `NHN_SECURITY_GROUP_ID` | 보안 그룹 이름 또는 ID | `default` 또는 UUID | Console > Network > Security Group |
 

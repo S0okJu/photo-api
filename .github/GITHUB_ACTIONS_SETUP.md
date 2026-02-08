@@ -130,6 +130,8 @@ curl -s -H "X-Auth-Token: $TOKEN" \
 | `NHN_CDN_DOMAIN` | NHN CDN 도메인 | `https://your-cdn.toastcdn.net` |
 | `NHN_CDN_AUTH_KEY` | CDN 인증 키 | `your-cdn-auth-key` |
 
+**멀티 리전:** 위 값들은 현재 워크플로에서 **이미지 빌드 시** 인스턴스 `.env`에 넣어 빌드/테스트에 사용합니다. 실제 **KR1/KR2/JP1 등 여러 리전**에 배포할 때는 **이미지에는 리전 공통 설정만 두고, 환경 변수는 배포 단계**에서 넣는 것을 권장합니다. **NHN Deploy**로 배포할 경우, Deploy 콘솔의 시나리오·서버 그룹 설정에서 리전별 `DATABASE_URL`, Object Storage/CDN 엔드포인트 등을 지정하면 됩니다. 자세한 비교는 [ENVIRONMENT_SETUP.md - 멀티 리전 배포 시 환경 변수](../ENVIRONMENT_SETUP.md#멀티-리전-배포-시-환경-변수-빌드-시-vs-배포-시)를 참고하세요.
+
 ## NHN Cloud API 인증 정보 확인 방법
 
 ### 1. API 비밀번호 설정

@@ -330,10 +330,11 @@ Could not connect to database
 - **KR1**: `NHN_STORAGE_URL=https://kr1-api-object-storage.nhncloudservice.com/v1`, `NHN_S3_ENDPOINT_URL=https://kr1-api-object-storage.nhncloudservice.com`, `NHN_S3_REGION_NAME=kr1`, 리전별 DB/CDN 등
 - **KR2**: 위와 동일 이미지, `kr2-...` URL 및 `kr2` 리전 등으로만 환경 변수 변경
 
-CI/CD에서는 이미지는 공통으로 빌드하고, 배포 스테이지(또는 Terraform/Helm 등)에서 리전별 env만 주입하도록 구성하면 됩니다.
+CI/CD에서는 이미지는 공통으로 빌드하고, 배포 스테이지에서 리전별 env만 주입하도록 구성하면 됩니다. **NHN Deploy**를 사용할 경우, Deploy 콘솔의 배포 시나리오·서버 그룹 설정에서 `DATABASE_URL`, Object Storage/CDN 엔드포인트 등 리전별 환경 변수를 지정하면 됩니다. ([NHN Cloud Deploy 가이드](https://docs.nhncloud.com/ko/Dev%20Tools/Deploy/ko/console-guide/) 참고)
 
 ## 참고 자료
 
+- [NHN Cloud Deploy 콘솔 가이드](https://docs.nhncloud.com/ko/Dev%20Tools/Deploy/ko/console-guide/) (배포 시 환경 변수 등)
 - [NHN Cloud Object Storage 문서](https://docs.nhncloud.com/ko/Storage/Object%20Storage/ko/overview/)
 - [S3 API 가이드](https://docs.nhncloud.com/ko/Storage/Object%20Storage/ko/s3-api-guide/)
 - [CDN Auth Token API 가이드](https://docs.nhncloud.com/ko/Contents%20Delivery/CDN/ko/api-guide-v2.0/#auth-token-api)

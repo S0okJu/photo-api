@@ -386,6 +386,7 @@ jobs:
           SOURCE_IMAGE_ID: ${{ steps.create_image.outputs.image_id }}
           SOURCE_IMAGE_NAME: ${{ steps.create_image.outputs.image_name }}
           TARGET_REGION: KR2
+          TARGET_IMAGE_BASE_URL: ${{ secrets.NHN_IMAGE_BASE_URL_KR2 }}
         run: python3 scripts/ci/copy_image_to_region.py
 
       - name: Cleanup KR1 resources

@@ -4,6 +4,7 @@ KR1에서 생성한 이미지를 다른 리전(KR2 등) Image API로 복사.
 인스턴스는 생성하지 않고, Image API만 사용 (GET image file from source → POST+PUT to target).
 환경 변수: TOKEN, SOURCE_IMAGE_ID, SOURCE_IMAGE_NAME, TARGET_REGION
   SOURCE_IMAGE_BASE_URL 또는 COMPUTE_URL(KR1) 중 하나 필요.
+  TARGET_IMAGE_BASE_URL: 타겟 리전 Image API 베이스 URL (시크릿 권장, 없으면 리전으로 추론).
   COMPUTE_URL이 있으면 kr1-api-instance → kr1-api-image 로 추론.
 """
 import os
@@ -40,7 +41,9 @@ def main() -> None:
         print("❌ TOKEN, (SOURCE_IMAGE_BASE_URL 또는 COMPUTE_URL), SOURCE_IMAGE_ID, SOURCE_IMAGE_NAME 필요", file=sys.stderr)
         sys.exit(1)
 
-    target_base = _image_base_for_region(target_region)
+    target_base = os.environ.get("TARGET_IMAGE_BASE_URL", "").strip()
+    if not target_base:
+        target_base = _image_base_for_region(target_region)
     headers = {"X-Auth-Token": token}
     headers_json = {**headers, "Content-Type": "application/json"}
 

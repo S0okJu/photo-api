@@ -54,6 +54,7 @@ GitHub 저장소 **Settings > Secrets and variables > Actions > Repository secre
 | `NHN_USERNAME` | NHN Cloud API 사용자 이름 | `user@example.com` |
 | `NHN_PASSWORD` | NHN Cloud API 비밀번호 | `your-password` |
 | `NHN_REGION` | 리전 이름 | 워크플로에서 **KR1** 고정(빌드·검증·이미지 생성), 이미지는 KR2로 복사. Secret 불필요 |
+| `NHN_IMAGE_BASE_URL_KR2` | KR2 Image API 베이스 URL (KR2 업로드용) | `https://kr2-api-image-infrastructure.nhncloudservice.com` | KR2 이미지 복사 시 필수. 미설정 시 리전으로 URL 추론 시도 |
 
 ### 2. NHN Cloud 인스턴스 설정
 

@@ -11,7 +11,7 @@ GitHub Actions 워크플로우 `build-and-test-image.yml`에서 사용하는 NHN
 | `create_build_instance.py` | 빌드용 인스턴스 생성, ACTIVE 대기 | NHN_* secrets, SSH_PUBLIC_KEY | GITHUB_OUTPUT: instance_id, instance_ip, keypair_name, token, compute_url |
 | `stop_instance.py` | 인스턴스 중지, SHUTOFF 대기 | TOKEN, COMPUTE_URL, INSTANCE_ID | — |
 | `create_image.py` | 인스턴스 → 이미지 생성, active 대기 | TOKEN, COMPUTE_URL, INSTANCE_ID, GIT_SHA | GITHUB_OUTPUT: image_id, image_name |
-| `copy_image_to_region.py` | KR1 이미지를 KR2 Image API로 복사 (인스턴스 생성 없음) | TOKEN, COMPUTE_URL 또는 SOURCE_IMAGE_BASE_URL, SOURCE_IMAGE_ID, SOURCE_IMAGE_NAME, TARGET_REGION | GITHUB_OUTPUT: target_image_id, target_region |
+| `copy_image_to_region.py` | KR1 이미지를 KR2 Image API로 복사 (인스턴스 생성 없음) | TOKEN, COMPUTE_URL 또는 SOURCE_IMAGE_BASE_URL, SOURCE_IMAGE_ID, SOURCE_IMAGE_NAME, TARGET_REGION, TARGET_IMAGE_BASE_URL(시크릿 권장) | GITHUB_OUTPUT: target_image_id, target_region |
 | `create_test_instance.py` | 테스트 인스턴스 생성, ACTIVE 대기 | TOKEN, COMPUTE_URL, IMAGE_ID, NHN_NETWORK_ID, NHN_FLAVOR_NAME, KEYPAIR_NAME 등 | GITHUB_OUTPUT: test_instance_id, test_instance_ip |
 | `cleanup.py` | 인스턴스·키페어 삭제 | TOKEN, COMPUTE_URL, BUILD_INSTANCE_ID, TEST_INSTANCE_ID, KEYPAIR_NAME | — |
 

@@ -19,12 +19,27 @@ def _image_base_url(compute_url: str) -> str:
     return base.replace("-instance-", "-image-")
 
 
+def _volume_url_from_compute(compute_url: str) -> str:
+    """Compute URL에서 Block Storage(Volume) API URL 추론. 카탈로그에 없을 때 fallback."""
+    parts = compute_url.split("/v2/", 1)
+    base = parts[0]
+    tenant_id = (parts[1] or "").strip("/") if len(parts) > 1 else ""
+    replaced = base.replace("-instance-", "-block-storage-")
+    if replaced == base:
+        replaced = base.replace("-instance-", "-volume-")
+    if replaced != base and tenant_id:
+        return f"{replaced}/v3/{tenant_id}"
+    return replaced if replaced != base else ""
+
+
 def main() -> None:
     token = os.environ["TOKEN"]
     compute_url = os.environ["COMPUTE_URL"]
     server_id = os.environ["INSTANCE_ID"]
     git_sha = os.environ.get("GIT_SHA", "")
     volume_url = os.environ.get("VOLUME_URL", "").strip()
+    if not volume_url:
+        volume_url = _volume_url_from_compute(compute_url)
     headers = {
         "X-Auth-Token": token,
         "Content-Type": "application/json",
@@ -95,6 +110,11 @@ def main() -> None:
             except Exception:
                 print("❌ 볼륨 업로드 응답에서 image_id를 찾을 수 없습니다.", file=sys.stderr)
                 sys.exit(1)
+        elif "block storage volume" in msg:
+            print(f"❌ 이미지 생성 불가: 인스턴스가 block storage volume 루트입니다.", file=sys.stderr)
+            print(f"   볼륨 업로드 API URL을 찾을 수 없습니다 (VOLUME_URL 또는 compute URL 추론 실패).", file=sys.stderr)
+            print(f"   NHN 콘솔에서 수동으로 이미지 생성하거나 Image Builder를 사용하세요.", file=sys.stderr)
+            sys.exit(1)
         else:
             print(f"❌ 이미지 생성 API 응답: {r.status_code}", file=sys.stderr)
             print(r.text[:800] if r.text else "(empty)", file=sys.stderr)

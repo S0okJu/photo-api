@@ -4,17 +4,13 @@
 
 ## 개요
 
-`build-and-test-image.yml` 워크플로우는 **인스턴스 생성·빌드·검증은 KR1에서만** 하고, **이미지 생성 API는 KR1에 한 번 호출한 뒤 같은 이미지를 KR2 Image API로 복사**합니다. KR2에는 인스턴스를 만들지 않습니다.
+`build-and-test-image.yml` 워크플로우는 **한 job**에서 **이미지 만든 걸 KR1·KR2에 동일하게 업로드(create image)** 하고, **실제 실행 테스트는 KR1에서만** 수행합니다.
 
-1. **빌드 인스턴스 생성 (KR1만)**: NHN Cloud KR1에 Ubuntu 베이스 이미지로 인스턴스를 생성합니다.
-2. **오프라인 패키지 준비**: Python 패키지, Promtail 바이너리를 미리 다운로드합니다.
-3. **인스턴스 빌드 (KR1)**: 소스 코드와 패키지를 업로드하고 오프라인 환경에서 설치합니다.
-4. **이미지 생성 (KR1)**: 빌드된 인스턴스를 **인스턴스 이미지**로 패킹합니다. (Compute/Volume API 사용)
-5. **이미지 복사 (KR2)**: KR1 Image API에서 이미지 파일을 받아 KR2 Image API로 업로드합니다. (`scripts/ci/copy_image_to_region.py`)
-6. **테스트 인스턴스·동작 검증 (KR1만)**: KR1에서 만든 이미지로 테스트 인스턴스를 띄우고, curl로 API health check 및 metrics 확인.
-7. **리소스 정리**: KR1 빌드/테스트 인스턴스 및 Floating IP 등 자동 삭제.
+1. **KR1**: 빌드 인스턴스 → 빌드 → **create image (KR1)** → 테스트 인스턴스 생성 → **curl로 실행 테스트 (KR1만)**.
+2. **KR2**: 동일 이미지를 KR2에도 업로드하기 위해 KR2 인스턴스에서 동일 빌드 후 **create image (KR2)**. (NHN은 리전 간 이미지 파일 전송을 허용하지 않아, KR2에서도 create image로 등록.)
+3. **리소스 정리**: KR1(빌드+테스트), KR2(빌드용) 자동 삭제.
 
-즉, **검증은 KR1 테스트 환경에서만 하고, 이미지 생성은 KR1에 한 번 요청한 뒤 동일 이미지를 KR1·KR2 Image 서비스에 올립니다.** Image API 참고: [Compute > Image > API 가이드](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/).
+**요약**: 이미지 업로드(create image)는 KR1·KR2 둘 다, 실행 테스트는 KR1만. Image API 참고: [Compute > Image > API 가이드](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/).
 
 ## 필수 GitHub Secrets 설정
 
@@ -35,6 +31,7 @@ GitHub 저장소 **Settings > Secrets and variables > Actions > Repository secre
 | 7 | `NHN_IMAGE_NAME` | 빌드용 베이스 이미지 이름 (Ubuntu 등) | ✅ |
 | 8 | `NHN_NETWORK_ID` | KR1 VPC/서브넷 ID (공통으로 쓸 때) | ✅ |
 | 8a | `NHN_NETWORK_ID_KR1` | KR1 전용 서브넷 ID (있으면 이 값 사용) | 선택 |
+| 8b | `NHN_NETWORK_ID_KR2` | KR2 빌드 인스턴스용 서브넷 ID (있으면 이 값 사용) | 선택 |
 | 9 | `NHN_FLOATING_IP_POOL` | Floating IP 풀 이름 (비우면 사용 가능한 풀 자동 선택) | 선택 |
 | 10 | `NHN_SECURITY_GROUP_ID` | 보안 그룹 (SSH 22, 8000 허용) | ✅ |
 | 11 | `LOKI_URL` | Promtail → Loki 주소 | ✅ |
@@ -66,7 +63,7 @@ GitHub 저장소 **Settings > Secrets and variables > Actions > Repository secre
 | `NHN_IMAGE_NAME` | **빌드용** 베이스 이미지 **이름** (동일 이름 여러 개면 전체 이름 사용) | `Ubuntu Server 22.04.5 LTS (2025.07.15)` | Public 이미지에서 이름 일치로 UUID 조회. 콘솔 2번째 컬럼(상세 이름)을 넣으면 원하는 것만 선택됨 |
 | `NHN_NETWORK_ID` | **서브넷 ID** (UUID). KR1/KR2 공통이면 이것만 설정 | `b83863ff-0355-4c73-8c10-0bdf66a69aab` | Console > Network > VPC > 서브넷 상세에서 서브넷 ID 복사 |
 | `NHN_NETWORK_ID_KR1` | KR1 전용 서브넷 ID (선택) | 리전별 VPC 사용 시 KR1 서브넷 UUID | 설정 시 KR1 job에서 이 값 사용 |
-| `NHN_NETWORK_ID_KR2` | KR2 서브넷 (현재 미사용) | 워크플로는 KR2에 인스턴스를 생성하지 않고 이미지만 복사함 | — |
+| `NHN_NETWORK_ID_KR2` | KR2 빌드 인스턴스용 서브넷 ID | KR2에서 동일 빌드 후 create image 시 사용 | 선택 |
 | `NHN_FLOATING_IP_POOL` | Floating IP 풀 이름 (선택) | `public` 또는 비움 | 비우면 API로 풀 목록 조회 또는 기본값(public 등) 순서대로 시도해 자동 선택 |
 | `NHN_SECURITY_GROUP_ID` | 보안 그룹 이름 또는 ID | `default` 또는 UUID | Console > Network > Security Group |
 

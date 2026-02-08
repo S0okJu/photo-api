@@ -22,7 +22,7 @@ env:
 
 jobs:
   build-and-test:
-    name: Build and Test (${{ matrix.region }})
+    name: Build and Create Image (${{ matrix.region }})  # KR1만 테스트 인스턴스로 앱 테스트
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     strategy:
@@ -323,8 +323,9 @@ jobs:
           GIT_SHA: ${{ github.sha }}
         run: python3 scripts/ci/create_image.py
 
-      - name: Create test instance from image
+      - name: Create test instance from image (KR1 only)
         id: test_instance
+        if: matrix.region == 'KR1'
         env:
           TOKEN: ${{ steps.create_instance.outputs.token }}
           COMPUTE_URL: ${{ steps.create_instance.outputs.compute_url }}
@@ -337,11 +338,13 @@ jobs:
         run: python3 scripts/ci/create_test_instance.py
 
       - name: Wait for test instance services
+        if: matrix.region == 'KR1'
         run: |
           echo "⏳ 서비스 시작 대기 중..."
           sleep 60  # systemd 서비스가 부팅 시 자동 시작되도록 대기
 
-      - name: Test image with curl
+      - name: Test image with curl (KR1 only)
+        if: matrix.region == 'KR1'
         run: |
           echo "🧪 이미지 테스트 중..."
           
@@ -396,16 +399,16 @@ jobs:
           TOKEN: ${{ steps.create_instance.outputs.token }}
           COMPUTE_URL: ${{ steps.create_instance.outputs.compute_url }}
           BUILD_INSTANCE_ID: ${{ steps.create_instance.outputs.instance_id }}
-          TEST_INSTANCE_ID: ${{ steps.test_instance.outputs.test_instance_id }}
+          TEST_INSTANCE_ID: ${{ steps.test_instance.outputs.test_instance_id || '' }}
           BUILD_FLOATING_IP_ID: ${{ steps.create_instance.outputs.floating_ip_id }}
-          TEST_FLOATING_IP_ID: ${{ steps.test_instance.outputs.test_floating_ip_id }}
+          TEST_FLOATING_IP_ID: ${{ steps.test_instance.outputs.test_floating_ip_id || '' }}
           KEYPAIR_NAME: ${{ steps.create_instance.outputs.keypair_name }}
         run: python3 scripts/ci/cleanup.py
 
       - name: Summary
         if: always()
         run: |
-          echo "## 🎉 빌드 및 테스트 요약 (${{ matrix.region }})" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎉 빌드 및 이미지 생성 요약 (${{ matrix.region }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| 항목 | 값 |" >> $GITHUB_STEP_SUMMARY
           echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
@@ -414,8 +417,8 @@ jobs:
           echo "| 빌드 인스턴스 IP | ${{ steps.create_instance.outputs.instance_ip }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 생성된 이미지 ID | ${{ steps.create_image.outputs.image_id }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 이미지 이름 | ${{ steps.create_image.outputs.image_name }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 테스트 인스턴스 ID | ${{ steps.test_instance.outputs.test_instance_id }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 테스트 인스턴스 IP | ${{ steps.test_instance.outputs.test_instance_ip }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 테스트 인스턴스 (KR1만) | ${{ steps.test_instance.outputs.test_instance_id || '-' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 테스트 인스턴스 IP (KR1만) | ${{ steps.test_instance.outputs.test_instance_ip || '-' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 생성된 이미지 정보" >> $GITHUB_STEP_SUMMARY
           echo "- **이미지 이름**: ${{ steps.create_image.outputs.image_name }}" >> $GITHUB_STEP_SUMMARY

@@ -4,18 +4,17 @@
 
 ## 개요
 
-`build-and-test-image.yml` 워크플로우는 **KR1, KR2 두 리전**에 대해 각각 병렬로 다음 작업을 자동으로 수행합니다 (matrix 전략):
+`build-and-test-image.yml` 워크플로우는 **KR1, KR2 두 리전**에 대해 각각 병렬로 빌드·이미지 생성을 수행합니다 (matrix 전략). **애플리케이션 테스트(테스트 인스턴스 + curl)는 KR1에서만** 실행하고, **create image는 KR1·KR2 모두** 실행해 두 리전에 이미지를 만듭니다.
 
-1. **빌드 인스턴스 생성**: NHN Cloud에 Ubuntu 베이스 이미지로 인스턴스를 생성합니다.
+1. **빌드 인스턴스 생성**: 리전별로 NHN Cloud에 Ubuntu 베이스 이미지로 인스턴스를 생성합니다.
 2. **오프라인 패키지 준비**: Python 패키지, Promtail 바이너리를 미리 다운로드합니다.
 3. **인스턴스 빌드**: 소스 코드와 패키지를 업로드하고 오프라인 환경에서 설치합니다.
-4. **이미지 생성(스냅샷)**: 빌드된 인스턴스를 **인스턴스 이미지**로 패킹합니다. (Compute API `createImage` 사용)
-5. **NHN Cloud Image 서비스**: 생성된 이미지는 [NHN Cloud Image 서비스](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/)에 등록됩니다. 이미지 목록 조회·관리는 Image API를 사용합니다.
-6. **테스트 인스턴스 실행**: 위에서 만든 **그 이미지 ID**로 새 인스턴스를 띄워 동작을 검증합니다.
-7. **동작 검증**: curl로 API health check 및 metrics 확인.
-8. **리소스 정리**: 테스트 후 생성된 리소스를 자동 삭제합니다.
+4. **이미지 생성(스냅샷)**: 빌드된 인스턴스를 **인스턴스 이미지**로 패킹합니다. (Compute API `createImage` 사용) — **KR1, KR2 모두 수행**
+5. **NHN Cloud Image 서비스**: 생성된 이미지는 [NHN Cloud Image 서비스](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/)에 등록됩니다.
+6. **테스트 인스턴스·동작 검증**: **KR1만** 위에서 만든 이미지로 테스트 인스턴스를 띄우고, curl로 API health check 및 metrics 확인.
+7. **리소스 정리**: 빌드/테스트 인스턴스 및 Floating IP 등 자동 삭제.
 
-즉, **테스트 인스턴스는 “빌드 인스턴스를 이미지로 패킹 → NHN Cloud Image에 등록된 이미지”를 사용해 생성됩니다.** Image API 참고: [Compute > Image > API 가이드](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/).
+즉, **테스트는 KR1 테스트 환경에서만 하고, 이미지는 KR1·KR2 둘 다 생성**합니다. Image API 참고: [Compute > Image > API 가이드](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/).
 
 ## 필수 GitHub Secrets 설정
 

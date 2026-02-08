@@ -299,6 +299,7 @@ jobs:
         env:
           TOKEN: ${{ steps.create_instance.outputs.token }}
           COMPUTE_URL: ${{ steps.create_instance.outputs.compute_url }}
+          VOLUME_URL: ${{ steps.create_instance.outputs.volume_url }}
           INSTANCE_ID: ${{ steps.create_instance.outputs.instance_id }}
           GIT_SHA: ${{ github.sha }}
         run: python3 scripts/ci/create_image.py

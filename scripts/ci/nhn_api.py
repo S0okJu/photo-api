@@ -99,8 +99,8 @@ def get_token_and_compute_url(
     username: str,
     password: str,
     region: str,
-) -> tuple[str, str]:
-    """토큰 발급 후 Compute API URL 반환."""
+) -> tuple[str, str, Optional[str]]:
+    """토큰 발급 후 Compute API URL 및 Volume(Block Storage) URL 반환. volume_url은 없을 수 있음."""
     auth_payload = {
         "auth": {
             "tenantId": tenant_id,
@@ -115,18 +115,21 @@ def get_token_and_compute_url(
     data = auth_response.json()
     token = data["access"]["token"]["id"]
     compute_url = None
+    volume_url = None
     for service in data["access"].get("serviceCatalog", []):
-        if service.get("type") == "compute":
-            for endpoint in service.get("endpoints", []):
-                if endpoint.get("region") == region:
-                    compute_url = endpoint.get("publicURL")
-                    break
-            break
+        stype = service.get("type") or ""
+        for endpoint in service.get("endpoints", []):
+            if endpoint.get("region") != region:
+                continue
+            url = endpoint.get("publicURL")
+            if stype == "compute":
+                compute_url = url
+            elif stype in ("volume", "volumev3"):
+                volume_url = url
     if not compute_url:
         print(f"❌ Compute endpoint not found for region: {region}", file=sys.stderr)
         sys.exit(1)
-    # NHN Cloud Compute API: /v2/{tenantId}/... 사용 (https://docs.nhncloud.com/ko/Compute/Instance/ko/public-api/)
-    return token, compute_url
+    return token, compute_url, volume_url
 
 
 def get_headers(token: str) -> dict:

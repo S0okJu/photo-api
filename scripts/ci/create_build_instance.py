@@ -38,7 +38,7 @@ def main() -> None:
         ssh_public_key = f.read().strip()
 
     print("🔐 NHN Cloud 인증 중...")
-    token, compute_url = get_token_and_compute_url(
+    token, compute_url, volume_url = get_token_and_compute_url(
         auth_url, tenant_id, username, password, region
     )
     headers = get_headers(token)
@@ -78,14 +78,14 @@ def main() -> None:
             "min_count": 1,
             "max_count": 1,
             "metadata": {"purpose": "github-actions-build", "app": "photo-api"},
-            # destination_type="local" 이어야 NHN에서 인스턴스→이미지 생성 가능 (volume이면 400)
+            # NHN: destination_type 은 반드시 "volume". (local 이면 인스턴스 생성 400)
             "block_device_mapping_v2": [
                 {
                     "source_type": "image",
                     "uuid": image_id,
                     "boot_index": 0,
                     "volume_size": root_volume_size,
-                    "destination_type": "local",
+                    "destination_type": "volume",
                     "delete_on_termination": True,
                 }
             ],
@@ -144,6 +144,8 @@ def main() -> None:
                     f.write(f"keypair_name={keypair_name}\n")
                     f.write(f"token={token}\n")
                     f.write(f"compute_url={compute_url}\n")
+                    if volume_url:
+                        f.write(f"volume_url={volume_url}\n")
                     if floating_ip_id:
                         f.write(f"floating_ip_id={floating_ip_id}\n")
             return

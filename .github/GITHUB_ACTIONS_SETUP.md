@@ -225,9 +225,9 @@ curl -s -H "X-Auth-Token: $TOKEN" \
 
 **증상**: `An image can't be created from instance that used block storage volume` (400)
 
-**원인**: NHN은 루트 디스크가 **블록 스토리지(volume)**인 인스턴스에서는 이미지 생성을 허용하지 않습니다.
+**원인**: NHN은 인스턴스 생성 시 `destination_type="volume"`만 허용하고, 그런 인스턴스에서는 Nova createImage를 막습니다.
 
-**해결**: CI 스크립트는 루트 디스크를 `destination_type="local"`로 생성합니다. **U2** 등 로컬 디스크를 지원하는 플레이버를 사용해야 합니다. 일부 인스턴스 타입만 로컬 루트를 지원하므로, 해당 타입으로 `NHN_FLAVOR_NAME`을 설정하세요.
+**해결**: CI는 이 경우 **Block Storage(Volume) API**로 루트 볼륨을 이미지에 업로드하는 방식으로 대체 시도합니다. `create_build_instance` 단계에서 토큰의 서비스 카탈로그에 **volume** 서비스가 있으면 `volume_url`을 출력하고, `create_image` 단계에서 400 시 해당 URL로 `os-volume_upload_image`를 호출합니다. NHN에서 Volume API를 제공하지 않거나 실패하면 콘솔에서 수동으로 이미지를 만들거나 [Image Builder](https://docs.nhncloud.com/ko/Compute/Image%20Builder/ko/overview/)를 사용하세요.
 
 ### Health Check 실패
 

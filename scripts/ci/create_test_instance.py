@@ -54,7 +54,7 @@ def main() -> None:
                     "uuid": image_id,
                     "boot_index": 0,
                     "volume_size": root_volume_size,
-                    "destination_type": "local",
+                    "destination_type": "volume",
                     "delete_on_termination": True,
                 }
             ],

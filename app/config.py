@@ -5,7 +5,7 @@ Manages all environment variables and settings.
 from enum import Enum
 from functools import lru_cache
 from pydantic_settings import BaseSettings
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 
 class Environment(str, Enum):
@@ -48,8 +48,15 @@ class Settings(BaseSettings):
         """Check if running in production mode."""
         return self.environment == Environment.PRODUCTION
     
-    # Database
+    # Database (빈 문자열이면 기본값 사용 - CI/이미지 검증 시 .env에 없을 수 있음)
     database_url: str = Field(default="sqlite+aiosqlite:///./photo_api.db")
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def coerce_empty_database_url(cls, v: str) -> str:
+        if not v or not str(v).strip():
+            return "sqlite+aiosqlite:///./photo_api.db"
+        return v
     
     # JWT
     jwt_secret_key: str = Field(default="jwt-secret-change-in-production")

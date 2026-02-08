@@ -7,10 +7,10 @@
 `build-and-test-image.yml` 워크플로우는 **한 job**에서 **이미지 만든 걸 KR1·KR2에 동일하게 업로드(create image)** 하고, **실제 실행 테스트는 KR1에서만** 수행합니다.
 
 1. **KR1**: 빌드 인스턴스 → 빌드 → **create image (KR1)** → 테스트 인스턴스 생성 → **curl로 실행 테스트 (KR1만)**.
-2. **KR2**: 동일 이미지를 KR2에도 업로드하기 위해 KR2 인스턴스에서 동일 빌드 후 **create image (KR2)**. (NHN은 리전 간 이미지 파일 전송을 허용하지 않아, KR2에서도 create image로 등록.)
-3. **리소스 정리**: KR1(빌드+테스트), KR2(빌드용) 자동 삭제.
+2. **KR2**: **이미지 업로드만.** KR1에서 만든 이미지를 KR2 Image API로 업로드 시도. 인스턴스 생성·빌드·테스트 없음. (NHN이 403이면 단계 실패, job은 continue-on-error로 성공.)
+3. **리소스 정리**: KR1만. KR2에는 인스턴스를 만들지 않음.
 
-**요약**: 이미지 업로드(create image)는 KR1·KR2 둘 다, 실행 테스트는 KR1만. Image API 참고: [Compute > Image > API 가이드](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/).
+**요약**: KR2 = 이미지 업로드만. 테스트·실행 테스트는 KR1만. Image API 참고: [Compute > Image > API 가이드](https://docs.nhncloud.com/ko/Compute/Image/ko/public-api/).
 
 ## 필수 GitHub Secrets 설정
 

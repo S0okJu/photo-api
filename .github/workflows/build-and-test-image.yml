@@ -377,135 +377,16 @@ jobs:
           
           exit 1
 
-      - name: Set KR2 for image upload
-        run: |
-          echo "NHN_REGION=KR2" >> $GITHUB_ENV
-          if [ -n "${{ secrets.NHN_NETWORK_ID_KR2 }}" ]; then
-            echo "NHN_NETWORK_ID=${{ secrets.NHN_NETWORK_ID_KR2 }}" >> $GITHUB_ENV
-          else
-            echo "NHN_NETWORK_ID=${{ secrets.NHN_NETWORK_ID }}" >> $GITHUB_ENV
-          fi
-          echo "이미지 KR2 업로드(create image). 실행 테스트는 KR1에서만 함."
-
-      - name: Create KR2 instance for image upload
-        id: create_instance_kr2
+      - name: Upload image to KR2 (이미지 업로드만, 인스턴스 생성 없음)
+        id: upload_image_kr2
+        continue-on-error: true
         env:
-          NHN_AUTH_URL: ${{ secrets.NHN_AUTH_URL }}
-          NHN_TENANT_ID: ${{ secrets.NHN_TENANT_ID }}
-          NHN_USERNAME: ${{ secrets.NHN_USERNAME }}
-          NHN_PASSWORD: ${{ secrets.NHN_PASSWORD }}
-          NHN_FLAVOR_NAME: ${{ secrets.NHN_FLAVOR_NAME }}
-          NHN_IMAGE_NAME: ${{ secrets.NHN_IMAGE_NAME }}
-          NHN_SECURITY_GROUP_ID: ${{ secrets.NHN_SECURITY_GROUP_ID }}
-          NHN_FLOATING_IP_POOL: ${{ secrets.NHN_FLOATING_IP_POOL }}
-          SSH_PUBLIC_KEY: ${{ steps.ssh_key.outputs.public_key_path }}
-        run: python3 scripts/ci/create_build_instance.py
-
-      - name: Wait for KR2 SSH
-        run: |
-          echo "⏳ KR2 SSH 대기..."
-          for i in $(seq 1 30); do
-            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
-              -i ${{ steps.ssh_key.outputs.private_key_path }} \
-              ubuntu@${{ steps.create_instance_kr2.outputs.instance_ip }} "echo ok" 2>/dev/null; then
-              echo "✅ KR2 SSH 가능"; exit 0
-            fi
-            sleep 10
-          done
-          echo "❌ KR2 SSH 실패"; exit 1
-
-      - name: Upload source and packages to KR2
-        run: |
-          KR2_IP="${{ steps.create_instance_kr2.outputs.instance_ip }}"
-          SSH_OPTS="-o StrictHostKeyChecking=no -i ${{ steps.ssh_key.outputs.private_key_path }}"
-          rsync -avz --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='venv' --exclude='.env' --exclude='*.log' \
-            -e "ssh $SSH_OPTS" ./ ubuntu@${KR2_IP}:/tmp/photo-api/
-          scp $SSH_OPTS .env.build ubuntu@${KR2_IP}:/tmp/photo-api/.env
-          rsync -avz -e "ssh $SSH_OPTS" offline-packages/ ubuntu@${KR2_IP}:/tmp/offline-packages/
-          echo "✅ KR2 업로드 완료"
-
-      - name: Build on KR2 instance
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ${{ steps.ssh_key.outputs.private_key_path }} \
-            ubuntu@${{ steps.create_instance_kr2.outputs.instance_ip }} << 'REMOTE'
-          set -euo pipefail
-          sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates build-essential libffi-dev libssl-dev software-properties-common unzip
-          sudo add-apt-repository -y ppa:deadsnakes/ppa && sudo apt-get update -qq
-          sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev
-          sudo mkdir -p /opt/photo-api /var/log/photo-api
-          sudo rsync -a /tmp/photo-api/ /opt/photo-api/
-          sudo chmod 755 /var/log/photo-api
-          sudo useradd -r -s /usr/sbin/nologin -d /opt/photo-api photo-api 2>/dev/null || true
-          python3.11 -m venv /opt/photo-api/venv
-          /opt/photo-api/venv/bin/pip install --upgrade pip --no-index --find-links=/tmp/offline-packages
-          /opt/photo-api/venv/bin/pip install --no-index --find-links=/tmp/offline-packages -r /opt/photo-api/requirements.txt
-          sudo tee /etc/systemd/system/photo-api.service > /dev/null << 'SVC'
-          [Unit]
-          Description=Photo API
-          After=network.target
-          [Service]
-          Type=simple
-          User=photo-api
-          Group=photo-api
-          WorkingDirectory=/opt/photo-api
-          Environment="PATH=/opt/photo-api/venv/bin:/usr/local/bin:/usr/bin:/bin"
-          EnvironmentFile=/opt/photo-api/.env
-          ExecStart=/opt/photo-api/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-          Restart=on-failure
-          RestartSec=5
-          StandardOutput=journal
-          StandardError=journal
-          [Install]
-          WantedBy=multi-user.target
-          SVC
-          sudo mkdir -p /opt/promtail /var/lib/promtail
-          unzip -q /tmp/offline-packages/promtail.zip -d /tmp/
-          sudo mv /tmp/promtail-linux-amd64 /opt/promtail/promtail 2>/dev/null || sudo mv /tmp/promtail /opt/promtail/promtail
-          sudo chmod +x /opt/promtail/promtail
-          sudo cp /opt/photo-api/conf/promtail-config.yaml /opt/promtail/promtail-config.yaml
-          sudo tee /etc/systemd/system/promtail.service > /dev/null << 'EOF'
-          [Unit]
-          Description=Promtail
-          After=network-online.target
-          [Service]
-          Type=simple
-          EnvironmentFile=/opt/photo-api/.env
-          ExecStart=/opt/promtail/promtail -config.file=/opt/promtail/promtail-config.yaml -config.expand-env=true
-          Restart=on-failure
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-          sudo chown -R photo-api:photo-api /opt/photo-api /var/log/photo-api
-          sudo systemctl daemon-reload
-          sudo systemctl enable photo-api.service
-          sudo systemctl enable promtail.service
-          sudo rm -rf /tmp/photo-api /tmp/offline-packages
-          echo "KR2 build done"
-          REMOTE
-          echo "✅ KR2 빌드 완료"
-
-      - name: Health check KR2 then stop
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ${{ steps.ssh_key.outputs.private_key_path }} \
-            ubuntu@${{ steps.create_instance_kr2.outputs.instance_ip }} "sudo systemctl start photo-api.service && sleep 10"
-          code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 "http://${{ steps.create_instance_kr2.outputs.instance_ip }}:8000/health" || echo "000")
-          echo "KR2 health: $code"
-          python3 scripts/ci/stop_instance.py
-        env:
-          TOKEN: ${{ steps.create_instance_kr2.outputs.token }}
-          COMPUTE_URL: ${{ steps.create_instance_kr2.outputs.compute_url }}
-          INSTANCE_ID: ${{ steps.create_instance_kr2.outputs.instance_id }}
-
-      - name: Create image in KR2 (동일 이미지 업로드)
-        id: create_image_kr2
-        env:
-          TOKEN: ${{ steps.create_instance_kr2.outputs.token }}
-          COMPUTE_URL: ${{ steps.create_instance_kr2.outputs.compute_url }}
-          VOLUME_URL: ${{ steps.create_instance_kr2.outputs.volume_url }}
-          INSTANCE_ID: ${{ steps.create_instance_kr2.outputs.instance_id }}
-          GIT_SHA: ${{ github.sha }}
-        run: python3 scripts/ci/create_image.py
+          TOKEN: ${{ steps.create_instance.outputs.token }}
+          COMPUTE_URL: ${{ steps.create_instance.outputs.compute_url }}
+          SOURCE_IMAGE_ID: ${{ steps.create_image.outputs.image_id }}
+          SOURCE_IMAGE_NAME: ${{ steps.create_image.outputs.image_name }}
+          TARGET_REGION: KR2
+        run: python3 scripts/ci/copy_image_to_region.py
 
       - name: Cleanup KR1 resources
         if: always() && github.event.inputs.skip_cleanup != 'true'
@@ -517,16 +398,6 @@ jobs:
           BUILD_FLOATING_IP_ID: ${{ steps.create_instance.outputs.floating_ip_id }}
           TEST_FLOATING_IP_ID: ${{ steps.test_instance.outputs.test_floating_ip_id }}
           KEYPAIR_NAME: ${{ steps.create_instance.outputs.keypair_name }}
-        run: python3 scripts/ci/cleanup.py
-
-      - name: Cleanup KR2 resources
-        if: always() && github.event.inputs.skip_cleanup != 'true'
-        env:
-          TOKEN: ${{ steps.create_instance_kr2.outputs.token }}
-          COMPUTE_URL: ${{ steps.create_instance_kr2.outputs.compute_url }}
-          BUILD_INSTANCE_ID: ${{ steps.create_instance_kr2.outputs.instance_id }}
-          BUILD_FLOATING_IP_ID: ${{ steps.create_instance_kr2.outputs.floating_ip_id }}
-          KEYPAIR_NAME: ${{ steps.create_instance_kr2.outputs.keypair_name }}
         run: python3 scripts/ci/cleanup.py
 
       - name: Summary
@@ -541,13 +412,13 @@ jobs:
           echo "| 빌드 인스턴스 IP | ${{ steps.create_instance.outputs.instance_ip }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 이미지 이름 | ${{ steps.create_image.outputs.image_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| KR1 이미지 ID | ${{ steps.create_image.outputs.image_id }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| KR2 이미지 ID | ${{ steps.create_image_kr2.outputs.image_id || '-' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| KR2 이미지 ID | ${{ steps.upload_image_kr2.outputs.target_image_id || '-' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 테스트 인스턴스 ID | ${{ steps.test_instance.outputs.test_instance_id }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 테스트 인스턴스 IP | ${{ steps.test_instance.outputs.test_instance_ip }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 이미지 정보" >> $GITHUB_STEP_SUMMARY
           echo "- **이미지 이름**: ${{ steps.create_image.outputs.image_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **KR1 이미지 ID**: ${{ steps.create_image.outputs.image_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **KR2 이미지 ID**: ${{ steps.create_image_kr2.outputs.image_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **KR2 이미지 ID**: ${{ steps.upload_image_kr2.outputs.target_image_id || '-' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Git Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo "- **빌드 시간**: $(date -u)" >> $GITHUB_STEP_SUMMARY

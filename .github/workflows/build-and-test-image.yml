@@ -19,12 +19,20 @@ on:
 env:
   PYTHON_VERSION: '3.11'
   PROMTAIL_VERSION: '3.6.4'
+  NODE_EXPORTER_VERSION: '1.10.0'
 
 jobs:
   build-and-create-image:
     name: Build and create image (KR1, KR2)
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+    outputs:
+      build_instance_id: ${{ steps.create_instance.outputs.instance_id }}
+      test_instance_id: ${{ steps.test_instance.outputs.test_instance_id }}
+      compute_url: ${{ steps.create_instance.outputs.compute_url }}
+      keypair_name: ${{ steps.create_instance.outputs.keypair_name }}
+      build_floating_ip_id: ${{ steps.create_instance.outputs.floating_ip_id }}
+      test_floating_ip_id: ${{ steps.test_instance.outputs.test_floating_ip_id }}
     steps:
       - name: Set KR1 for build and test
         run: |
@@ -100,18 +108,32 @@ jobs:
         run: |
           echo "📦 빌드 환경 설정 중..."
           
-          # 환경 변수 파일 생성 (메트릭은 Prometheus가 /metrics 스크래핑)
-          cat > .env.build << EOF
-          LOKI_URL=${{ secrets.LOKI_URL }}
+          # LOKI_URL: Secret 값 앞뒤 공백/줄바꿈 제거 후 사용 (GitHub UI 붙여넣기 시 포함될 수 있음)
+          LOKI_URL_TRIM="${{ secrets.LOKI_URL }}"
+          LOKI_URL_TRIM=$(echo "$LOKI_URL_TRIM" | tr -d '\n\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          
+          # 환경 변수 파일 생성 (메트릭: /metrics 스크래핑, Pushgateway 선택)
+          cat > .env.build << ENVEOF
+          LOKI_URL=${LOKI_URL_TRIM}
           INSTANCE_IP=${{ steps.create_instance.outputs.instance_ip }}
           DATABASE_URL=${{ secrets.DATABASE_URL }}
           JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+          PROMETHEUS_PUSHGATEWAY_URL=${{ secrets.PROMETHEUS_PUSHGATEWAY_URL }}
+          PROMETHEUS_PUSH_INTERVAL_SECONDS=${{ secrets.PROMETHEUS_PUSH_INTERVAL_SECONDS }}
           NHN_OBJECT_STORAGE_ENDPOINT=${{ secrets.NHN_OBJECT_STORAGE_ENDPOINT }}
           NHN_OBJECT_STORAGE_ACCESS_KEY=${{ secrets.NHN_OBJECT_STORAGE_ACCESS_KEY }}
           NHN_OBJECT_STORAGE_SECRET_KEY=${{ secrets.NHN_OBJECT_STORAGE_SECRET_KEY }}
           NHN_CDN_DOMAIN=${{ secrets.NHN_CDN_DOMAIN }}
           NHN_CDN_AUTH_KEY=${{ secrets.NHN_CDN_AUTH_KEY }}
-          EOF
+          ENVEOF
+          
+          # LOKI_URL 미설정 시 이미지에 빈 값이 들어가 Promtail이 기동하지 않음 → 빌드 실패로 조기 발견
+          LOKI_VAL=$(grep '^LOKI_URL=' .env.build 2>/dev/null | cut -d= -f2-)
+          if [ -z "$LOKI_VAL" ]; then
+            echo "::error::LOKI_URL is not set. Add LOKI_URL to Repository Secrets (Settings > Secrets and variables > Actions) and re-run. Name must be exactly: LOKI_URL"
+            exit 1
+          fi
+          echo "✅ LOKI_URL 설정됨 (값 길이: ${#LOKI_VAL}자, 이미지 빌드에 반영됩니다)"
 
       - name: Upload source code to build instance
         run: |
@@ -142,6 +164,10 @@ jobs:
           echo "📥 Promtail 바이너리 다운로드 중..."
           curl -sSL -o offline-packages/promtail.zip \
             "https://github.com/grafana/loki/releases/download/v${PROMTAIL_VERSION}/promtail-linux-amd64.zip"
+          # node_exporter (인스턴스 리소스 메트릭)
+          echo "📥 node_exporter 다운로드 중..."
+          curl -sSL -o offline-packages/node_exporter.tar.gz \
+            "https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXPORTER_VERSION}/node_exporter-${NODE_EXPORTER_VERSION}.linux-amd64.tar.gz"
           
           echo "✅ 오프라인 패키지 다운로드 완료"
 
@@ -224,29 +250,22 @@ jobs:
           sudo chmod +x /opt/promtail/promtail
           
           sudo cp /opt/photo-api/conf/promtail-config.yaml /opt/promtail/promtail-config.yaml
+          sudo cp /opt/photo-api/conf/promtail.service /etc/systemd/system/promtail.service
           
-          # Promtail systemd 서비스
-          sudo tee /etc/systemd/system/promtail.service > /dev/null << 'EOF'
-          [Unit]
-          Description=Promtail
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          Type=simple
-          EnvironmentFile=/opt/photo-api/.env
-          ExecStart=/opt/promtail/promtail -config.file=/opt/promtail/promtail-config.yaml -config.expand-env=true
-          Restart=on-failure
-          RestartSec=5
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
+          echo "=== 4단계: node_exporter 설정 (인스턴스 리소스 메트릭) ==="
+          sudo useradd -r -s /usr/sbin/nologin -d /opt/node_exporter node-exporter 2>/dev/null || true
+          sudo mkdir -p /opt/node_exporter
+          sudo tar -xzf /tmp/offline-packages/node_exporter.tar.gz -C /tmp/
+          sudo mv /tmp/node_exporter-*.linux-amd64/node_exporter /opt/node_exporter/
+          sudo rm -rf /tmp/node_exporter-*.linux-amd64
+          sudo chown -R node-exporter:node-exporter /opt/node_exporter
+          sudo cp /opt/photo-api/conf/node_exporter.service /etc/systemd/system/node_exporter.service
           
           echo "=== systemd 서비스 활성화 ==="
           sudo systemctl daemon-reload
           sudo systemctl enable photo-api.service
           sudo systemctl enable promtail.service
+          sudo systemctl enable node_exporter.service
           
           echo "=== 정리 ==="
           sudo rm -rf /tmp/photo-api /tmp/offline-packages
@@ -294,6 +313,13 @@ jobs:
           ssh $SSH_OPTS ubuntu@${INSTANCE_IP} "sudo systemctl status photo-api.service --no-pager || true; sudo journalctl -u photo-api -n 80 --no-pager || true"
           exit 1
 
+      - name: Prepare image for first-boot SSH (cloud-init clean)
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ${{ steps.ssh_key.outputs.private_key_path }} \
+            ubuntu@${{ steps.create_instance.outputs.instance_ip }} \
+            "sudo cloud-init clean && sudo sync"
+          echo "✅ cloud-init 상태 초기화 완료 → 이 이미지로 띄운 인스턴스는 첫 부팅 시 cloud-init이 실행되어 SSH 키가 주입됩니다."
+
       - name: Stop instance before creating image
         env:
           TOKEN: ${{ steps.create_instance.outputs.token }}
@@ -328,6 +354,26 @@ jobs:
           echo "⏳ 서비스 시작 대기 중..."
           sleep 60  # systemd 서비스가 부팅 시 자동 시작되도록 대기
 
+      - name: Check server time sync (Temp URL 검증용)
+        run: |
+          echo "🕐 서버 시간 오차 확인 중 (Temp URL 서명 검증을 위해 중요)..."
+          RUNNER_EPOCH=$(date +%s)
+          INSTANCE_IP="${{ steps.test_instance.outputs.test_instance_ip }}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -i ${{ steps.ssh_key.outputs.private_key_path }}"
+          INSTANCE_EPOCH=$(ssh $SSH_OPTS ubuntu@${INSTANCE_IP} "date +%s" 2>/dev/null || echo "0")
+          if [ "$INSTANCE_EPOCH" = "0" ]; then
+            echo "::warning::인스턴스 시간 조회 실패. NTP 동기화는 이미지 빌드 시 활성화되어 있습니다."
+            exit 0
+          fi
+          DIFF=$((RUNNER_EPOCH > INSTANCE_EPOCH ? RUNNER_EPOCH - INSTANCE_EPOCH : INSTANCE_EPOCH - RUNNER_EPOCH))
+          MAX_DRIFT=120
+          if [ "$DIFF" -gt "$MAX_DRIFT" ]; then
+            echo "::error::서버 시간 오차가 ${DIFF}초입니다 (허용: ${MAX_DRIFT}초). Temp URL 401 원인일 수 있습니다. NTP/타임존을 확인하세요."
+            echo "Runner epoch: $RUNNER_EPOCH, Instance epoch: $INSTANCE_EPOCH"
+            exit 1
+          fi
+          echo "✅ 서버 시간 오차 ${DIFF}초 (허용 범위 내)"
+
       - name: Test image with curl (KR1만)
         run: |
           echo "🧪 이미지 테스트 중 (KR1, 실제 실행 테스트만)..."
@@ -346,9 +392,11 @@ jobs:
               echo "📊 API 정보:"
               curl -s http://${{ steps.test_instance.outputs.test_instance_ip }}:8000/ | jq .
               
-              # Metrics 확인
-              echo "📈 Prometheus 메트릭 확인:"
-              curl -s http://${{ steps.test_instance.outputs.test_instance_ip }}:8000/metrics | head -20
+              # Metrics 확인 (앱 /metrics, node_exporter 인스턴스 리소스)
+              echo "📈 앱 메트릭 (8000):"
+              curl -s http://${{ steps.test_instance.outputs.test_instance_ip }}:8000/metrics | head -15
+              echo "📈 node_exporter 메트릭 (9100):"
+              curl -s http://${{ steps.test_instance.outputs.test_instance_ip }}:9100/metrics | head -10
               
               echo "✅ 모든 테스트 통과"
               exit 0
@@ -377,29 +425,19 @@ jobs:
           
           exit 1
 
-      - name: Upload image to KR2 (이미지 업로드만, 인스턴스 생성 없음)
-        id: upload_image_kr2
-        continue-on-error: true
-        env:
-          TOKEN: ${{ steps.create_instance.outputs.token }}
-          SOURCE_IMAGE_BASE_URL: ${{ secrets.NHN_IMAGE_BASE_URL_KR1 }}
-          SOURCE_IMAGE_ID: ${{ steps.create_image.outputs.image_id }}
-          SOURCE_IMAGE_NAME: ${{ steps.create_image.outputs.image_name }}
-          TARGET_REGION: KR2
-          TARGET_IMAGE_BASE_URL: ${{ secrets.NHN_IMAGE_BASE_URL_KR2 }}
-        run: python3 scripts/ci/copy_image_to_region.py
-
-      - name: Cleanup KR1 resources
-        if: always() && github.event.inputs.skip_cleanup != 'true'
-        env:
-          TOKEN: ${{ steps.create_instance.outputs.token }}
-          COMPUTE_URL: ${{ steps.create_instance.outputs.compute_url }}
-          BUILD_INSTANCE_ID: ${{ steps.create_instance.outputs.instance_id }}
-          TEST_INSTANCE_ID: ${{ steps.test_instance.outputs.test_instance_id }}
-          BUILD_FLOATING_IP_ID: ${{ steps.create_instance.outputs.floating_ip_id }}
-          TEST_FLOATING_IP_ID: ${{ steps.test_instance.outputs.test_floating_ip_id }}
-          KEYPAIR_NAME: ${{ steps.create_instance.outputs.keypair_name }}
-        run: python3 scripts/ci/cleanup.py
+      # KR2 이미지 업로드 비활성화 (필요시 활성화)
+      # - name: Upload image to KR2 (이미지 업로드만, 인스턴스 생성 없음)
+      #   id: upload_image_kr2
+      #   continue-on-error: true
+      #   env:
+      #     TOKEN: ${{ steps.create_instance.outputs.token }}
+      #     COMPUTE_URL: ${{ steps.create_instance.outputs.compute_url }}
+      #     SOURCE_IMAGE_BASE_URL: ${{ secrets.NHN_IMAGE_BASE_URL_KR1 }}
+      #     SOURCE_IMAGE_ID: ${{ steps.create_image.outputs.image_id }}
+      #     SOURCE_IMAGE_NAME: ${{ steps.create_image.outputs.image_name }}
+      #     TARGET_REGION: KR2
+      #     TARGET_IMAGE_BASE_URL: ${{ secrets.NHN_IMAGE_BASE_URL_KR2 }}
+      #   run: python3 scripts/ci/copy_image_to_region.py
 
       - name: Summary
         if: always()
@@ -413,13 +451,52 @@ jobs:
           echo "| 빌드 인스턴스 IP | ${{ steps.create_instance.outputs.instance_ip }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 이미지 이름 | ${{ steps.create_image.outputs.image_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| KR1 이미지 ID | ${{ steps.create_image.outputs.image_id }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| KR2 이미지 ID | ${{ steps.upload_image_kr2.outputs.target_image_id || '-' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| KR2 이미지 ID | - (비활성화됨) |" >> $GITHUB_STEP_SUMMARY
           echo "| 테스트 인스턴스 ID | ${{ steps.test_instance.outputs.test_instance_id }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 테스트 인스턴스 IP | ${{ steps.test_instance.outputs.test_instance_ip }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 이미지 정보" >> $GITHUB_STEP_SUMMARY
           echo "- **이미지 이름**: ${{ steps.create_image.outputs.image_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **KR1 이미지 ID**: ${{ steps.create_image.outputs.image_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **KR2 이미지 ID**: ${{ steps.upload_image_kr2.outputs.target_image_id || '-' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **KR2 이미지 ID**: - (비활성화됨)" >> $GITHUB_STEP_SUMMARY
           echo "- **Git Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo "- **빌드 시간**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+
+  # 실패/취소/타임아웃 시에도 빌드 인스턴스를 반드시 삭제 (같은 job 내 Cleanup이 취소 시 스킵될 수 있음)
+  cleanup-resources:
+    name: Cleanup resources (always)
+    runs-on: ubuntu-22.04
+    needs: build-and-create-image
+    if: always() && github.event.inputs.skip_cleanup != 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install --upgrade pip && pip install requests
+
+      - name: Get NHN token
+        id: get_token
+        env:
+          NHN_AUTH_URL: ${{ secrets.NHN_AUTH_URL }}
+          NHN_TENANT_ID: ${{ secrets.NHN_TENANT_ID }}
+          NHN_USERNAME: ${{ secrets.NHN_USERNAME }}
+          NHN_PASSWORD: ${{ secrets.NHN_PASSWORD }}
+          NHN_REGION: KR1
+        run: cd scripts/ci && python3 get_token.py
+
+      - name: Cleanup KR1 resources
+        env:
+          TOKEN: ${{ steps.get_token.outputs.token }}
+          COMPUTE_URL: ${{ steps.get_token.outputs.compute_url }}
+          BUILD_INSTANCE_ID: ${{ needs.build-and-create-image.outputs.build_instance_id }}
+          TEST_INSTANCE_ID: ${{ needs.build-and-create-image.outputs.test_instance_id }}
+          BUILD_FLOATING_IP_ID: ${{ needs.build-and-create-image.outputs.build_floating_ip_id }}
+          TEST_FLOATING_IP_ID: ${{ needs.build-and-create-image.outputs.test_floating_ip_id }}
+          KEYPAIR_NAME: ${{ needs.build-and-create-image.outputs.keypair_name }}
+        run: cd scripts/ci && python3 cleanup.py

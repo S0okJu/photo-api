@@ -91,10 +91,20 @@ class Settings(BaseSettings):
     nhn_s3_secret_key: str = Field(default="", description="S3 API Secret Key (EC2 credentials)")
     nhn_s3_endpoint_url: str = Field(
         default="https://kr1-api-object-storage.nhncloudservice.com",
-        description="S3 API Endpoint URL"
+        description="S3 API 엔드포인트 URL. 호스트만 사용 (경로 /v1/AUTH_xxx 포함 시 InvalidBucketName 발생)."
     )
     nhn_s3_region_name: str = Field(default="kr1", description="S3 Region Name")
     nhn_s3_presigned_url_expire_seconds: int = Field(default=3600, description="Presigned URL 유효 시간 (초)")
+    
+    # Swift Temp URL (S3 presigned 대체 — CORS preflight 정상 동작)
+    # 컨테이너에 Temp URL Key를 먼저 설정해야 함:
+    #   curl -X POST -H "X-Auth-Token: {token}" \
+    #        -H "X-Container-Meta-Temp-URL-Key: {your_secret_key}" \
+    #        https://kr1-api-object-storage.nhncloudservice.com/v1/AUTH_{tenant_id}/{container}
+    nhn_storage_temp_url_key: str = Field(
+        default="",
+        description="Swift Temp URL Key. 설정 시 S3 presigned 대신 Swift Temp URL 사용 (CORS 호환)"
+    )
     
     # NHN Cloud CDN (Auth Token API)
     # https://docs.nhncloud.com/ko/Contents%20Delivery/CDN/ko/api-guide-v2.0/#auth-token-api
@@ -104,14 +114,36 @@ class Settings(BaseSettings):
     nhn_cdn_encrypt_key: str = Field(default="", description="CDN Token Encryption Key (토큰 생성용)")
     nhn_cdn_token_expire_seconds: int = Field(default=3600, description="Auth Token 유효 시간 (초)")
     
-    # 이미지 접근 제어: 프록시 사용 시 URL 유출되어도 짧은 시간만 유효
+    # 이미지 접근: API는 항상 /photos/{id}/image 경로만 반환. JWT로 권한 확인 후 CDN 리다이렉트 또는 스트리밍.
     image_access_use_proxy: bool = Field(
         default=True,
-        description="True면 이미지를 백엔드 경유(프록시)로 제공하고, URL에 짧은 유효기간 토큰 사용. False면 CDN URL 직접 반환(기존 방식).",
+        description="(호환용) 이미지 URL을 API 경로로 할지 여부. 현재는 항상 API 경로(/photos/{id}/image) 사용.",
     )
     image_token_expire_seconds: int = Field(
         default=120,
-        description="이미지 접근 토큰 유효 시간(초). image_access_use_proxy=True일 때만 사용.",
+        description="이미지 302 리다이렉트 시 CDN 토큰 유효 시간(초).",
+    )
+    
+    # Rate Limiting
+    rate_limit_enabled: bool = Field(
+        default=True,
+        description="Rate limiting 활성화 여부",
+    )
+    rate_limit_per_minute: int = Field(
+        default=60,
+        description="IP당 분당 요청 수 제한 (일반 엔드포인트)",
+    )
+    rate_limit_share_per_minute: int = Field(
+        default=10,
+        description="IP당 분당 요청 수 제한 (공유 링크 엔드포인트)",
+    )
+    rate_limit_image_per_minute: int = Field(
+        default=120,
+        description="IP당 분당 요청 수 제한 (이미지 접근 엔드포인트)",
+    )
+    rate_limit_burst: int = Field(
+        default=10,
+        description="Rate limit 버스트 허용량",
     )
     
     # NHN Cloud Log & Crash
@@ -133,9 +165,23 @@ class Settings(BaseSettings):
         default=30,
         description="Pushgateway로 메트릭 전송 주기(초). prometheus_pushgateway_url 설정 시에만 사용.",
     )
-    
+
+    @field_validator("prometheus_push_interval_seconds", mode="before")
+    @classmethod
+    def coerce_push_interval(cls, v: object) -> int:
+        if v is None or v == "":
+            return 30
+        if isinstance(v, str):
+            return int(v)
+        return int(v)
+
     # 인스턴스 식별용 사설 IP (로그·메트릭용). 비우면 자동 감지(ip addr), 오토스케일 시 서버마다 다름
     instance_ip: str = Field(default="", description="서버 사설 IP (비우면 자동 감지)")
+
+    # 로그 타임스탬프 타임존 (IANA, 예: Asia/Seoul). 비우면 UTC
+    log_timezone: str = Field(default="Asia/Seoul", description="로그 timestamp 타임존 (IANA). 빈 문자열이면 UTC")
+    # 로그 디렉터리. 비우면 /var/log/photo-api 사용, 쓰기 실패 시 ./logs 로 fallback
+    log_dir: str = Field(default="", description="로그 파일 디렉터리 (비우면 /var/log/photo-api, 권한 없으면 ./logs)")
     
     # Loki (미사용·호환용). 로그는 Promtail로만 전송하므로 이 값은 사용하지 않음
     loki_url: str | None = Field(default=None, description="Deprecated: use Promtail for logs")

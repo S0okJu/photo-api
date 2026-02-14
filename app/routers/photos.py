@@ -5,9 +5,11 @@ import logging
 import mimetypes
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query, Request
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.models.user import User
 
@@ -25,7 +27,15 @@ from app.schemas.photo import (
 )
 from app.services.photo import PhotoService
 from app.dependencies.auth import get_current_active_user
-from app.utils.security import verify_image_access_token
+from app.utils.prometheus_metrics import (
+    image_access_total,
+    image_access_duration_seconds,
+    photo_upload_total,
+    photo_upload_file_size_bytes,
+    presigned_url_generation_total,
+    photo_upload_confirm_total,
+)
+import time
 
 router = APIRouter(prefix="/photos", tags=["Photos"])
 
@@ -97,18 +107,19 @@ async def get_presigned_upload_url(
     current_user: User = Depends(get_current_active_user),
 ) -> PresignedUrlResponse:
     """
-    Get a presigned URL for direct upload to Object Storage.
+    Get a Swift Temp URL for direct upload to Object Storage.
     
-    이 방식을 사용하면 클라이언트가 서버를 거치지 않고 직접 Object Storage에 업로드할 수 있습니다.
+    클라이언트가 서버를 거치지 않고 직접 Object Storage에 업로드합니다.
+    Swift API 경로를 사용하므로 컨테이너 CORS 설정이 적용되어 브라우저 OPTIONS preflight가 정상 동작합니다.
     
     **사용 방법:**
-    1. 이 엔드포인트를 호출하여 presigned URL을 받습니다.
-    2. 받은 URL로 PUT 요청을 보내 파일을 직접 업로드합니다.
+    1. 이 엔드포인트를 호출하여 업로드 URL을 받습니다.
+    2. 받은 URL로 `upload_headers`와 함께 PUT 요청을 보내 파일을 직접 업로드합니다.
     3. 업로드 완료 후 `/photos/confirm` 엔드포인트를 호출하여 확인합니다.
     
     **업로드 예시 (JavaScript):**
     ```javascript
-    // 1. Presigned URL 받기
+    // 1. 업로드 URL 받기
     const response = await fetch('/photos/presigned-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -124,7 +135,7 @@ async def get_presigned_upload_url(
     // 2. Object Storage에 직접 업로드
     await fetch(data.upload_url, {
         method: 'PUT',
-        headers: { 'Content-Type': 'image/jpeg' },
+        headers: data.upload_headers,
         body: fileBlob
     });
     
@@ -135,8 +146,6 @@ async def get_presigned_upload_url(
         body: JSON.stringify({ photo_id: data.photo_id })
     });
     ```
-    
-    참조: https://docs.nhncloud.com/ko/Storage/Object%20Storage/ko/s3-api-guide/
     """
     # Validate file size
     if request.file_size > MAX_FILE_SIZE:
@@ -185,6 +194,10 @@ async def get_presigned_upload_url(
         await album_service.add_photos_to_album(album, [upload_data["photo_id"]], current_user.id)
         await db.commit()
         
+        # 메트릭 수집: Presigned URL 생성 성공
+        presigned_url_generation_total.labels(result="success").inc()
+        photo_upload_file_size_bytes.labels(upload_method="presigned").observe(request.file_size)
+        
         from app.config import get_settings
         settings = get_settings()
         
@@ -194,14 +207,19 @@ async def get_presigned_upload_url(
             object_key=upload_data["object_key"],
             expires_in=settings.nhn_s3_presigned_url_expire_seconds,
             upload_method=upload_data["upload_method"],
+            upload_headers=upload_data.get("upload_headers", {}),
         )
         
     except ValueError as e:
+        # 메트릭 수집: Presigned URL 생성 실패
+        presigned_url_generation_total.labels(result="failure").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
     except Exception as e:
+        # 메트릭 수집: Presigned URL 생성 실패
+        presigned_url_generation_total.labels(result="failure").inc()
         logger.error("Presigned URL generation failed", exc_info=e, extra={"event": "photo", "user_id": current_user.id})
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -238,6 +256,10 @@ async def confirm_photo_upload(
         
         await db.commit()
         
+        # 메트릭 수집: 업로드 확인 성공
+        photo_upload_confirm_total.labels(result="success").inc()
+        photo_upload_total.labels(upload_method="presigned", result="success").inc()
+        
         # Generate CDN URL for the uploaded photo
         photo_with_url = await photo_service.get_photo_with_url(photo)
         
@@ -249,11 +271,17 @@ async def confirm_photo_upload(
         )
         
     except ValueError as e:
+        # 메트릭 수집: 업로드 확인 실패
+        photo_upload_confirm_total.labels(result="failure").inc()
+        photo_upload_total.labels(upload_method="presigned", result="failure").inc()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
     except Exception as e:
+        # 메트릭 수집: 업로드 확인 실패
+        photo_upload_confirm_total.labels(result="failure").inc()
+        photo_upload_total.labels(upload_method="presigned", result="failure").inc()
         logger.error("Photo upload confirmation failed", exc_info=e, extra={"event": "photo", "user_id": current_user.id})
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -286,7 +314,7 @@ async def upload_photo(
     - **title**: Optional title for the photo
     - **description**: Optional description
     
-    The photo will be stored in NHN Cloud Object Storage with path: image/{album_id}/{filename}
+    The photo will be stored in NHN Cloud Object Storage with path: photo/photo/image/{album_id}/{filename}
     Maximum file size: 10MB
     """
     # Read file content first (needed for validation)
@@ -344,6 +372,10 @@ async def upload_photo(
         await album_service.add_photos_to_album(album, [photo.id], current_user.id)
         await db.commit()
         
+        # 메트릭 수집: 직접 업로드 성공
+        photo_upload_total.labels(upload_method="direct", result="success").inc()
+        photo_upload_file_size_bytes.labels(upload_method="direct").observe(len(content))
+        
         # Generate CDN URL for the uploaded photo
         photo_with_url = await photo_service.get_photo_with_url(photo)
         
@@ -357,6 +389,8 @@ async def upload_photo(
         )
         
     except ValueError as e:
+        # 메트릭 수집: 직접 업로드 실패
+        photo_upload_total.labels(upload_method="direct", result="failure").inc()
         # ValueError는 이미 로그에 기록됨
         # 사용자 친화적인 에러 메시지만 반환 (내부 정보 노출 방지)
         raise HTTPException(
@@ -364,6 +398,8 @@ async def upload_photo(
             detail="사진 업로드에 실패했습니다. 잠시 후 다시 시도해주세요.",
         )
     except Exception as e:
+        # 메트릭 수집: 직접 업로드 실패
+        photo_upload_total.labels(upload_method="direct", result="failure").inc()
         logger.error("Photo upload failed", exc_info=e, extra={"event": "photo", "user_id": current_user.id})
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -400,41 +436,74 @@ async def get_photos(
 
 @router.get(
     "/{photo_id}/image",
-    summary="Stream photo (proxy); requires short-lived token in query t=",
+    summary="Image access (JWT required); redirects to CDN when configured",
 )
 async def get_photo_image(
     photo_id: int,
-    t: str = Query(..., description="Short-lived image access token"),
+    request: Request,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
-    이미지 바이트 스트림 반환. 쿼리 파라미터 t에 서명된 짧은 유효기간 토큰 필요.
-    인가된 사용자에게만 목록 API에서 이 URL이 내려가므로, URL 유출 시에도 토큰 만료 후 접근 불가.
+    이미지 접근: **JWT 필수**. 권한 확인 후 CDN이 설정되어 있으면 짧은 유효기간 CDN URL로 302 리다이렉트하여
+    이미지 트래픽이 로드밸런서/백엔드를 거치지 않도록 합니다. CDN이 없으면 바이트 스트림으로 반환합니다.
+
+    **보안 보장:**
+    - **인가**: Authorization: Bearer {JWT} 필요. 해당 사진의 **소유자**만 접근 가능.
+    - **OBS URL 직접 접근 차단**: OBS가 public이어도, OBS URL을 직접 알더라도 접근 불가.
+      CDN Auth Token이 없으면 CDN이 자동으로 거부합니다.
+    - **링크만으로 접근 불가**: 이 엔드포인트는 JWT 없이 접근할 수 없습니다.
+    
+    **효율**: CDN 설정 시 302 리다이렉트 → 브라우저가 CDN에서 직접 다운로드 (LB 경유 없음).
+    **클라이언트**: `<img>` 에서 쓰려면 `fetch('/photos/{id}/image', { headers: { Authorization } })` 후 blob URL 로 넣거나,
+      같은 오리진 + 쿠키 인증을 사용하세요.
     """
-    if not t:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
-    verified_id = verify_image_access_token(t)
-    if verified_id is None or verified_id != photo_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired token")
+    start_time = time.perf_counter()
+    settings = get_settings()
     photo_service = PhotoService(db)
-    photo = await photo_service.get_photo_by_id(photo_id, user_id=None)
+    photo = await photo_service.get_photo_by_id(photo_id, user_id=current_user.id)
     if not photo:
+        # 소유자가 아님
+        image_access_total.labels(access_type="authenticated", result="denied").inc()
+        duration = time.perf_counter() - start_time
+        image_access_duration_seconds.labels(access_type="authenticated", result="denied").observe(duration)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+
+    # CDN Auth Token URL이 있으면 302 리다이렉트 (이미지 보기는 S3 GET presigned 미사용, CDN 토큰만)
+    # ⚠️ 보안: OBS URL을 절대 반환하지 않음. CDN Auth Token이 포함된 URL만 반환.
+    if settings.nhn_cdn_domain and settings.nhn_cdn_app_key:
+        cdn_url = await photo_service.cdn.generate_auth_token_url(
+            photo.storage_path,
+            expires_in=settings.image_token_expire_seconds,
+        )
+        if cdn_url:
+            # 성공: CDN 리다이렉트
+            image_access_total.labels(access_type="authenticated", result="success").inc()
+            duration = time.perf_counter() - start_time
+            image_access_duration_seconds.labels(access_type="authenticated", result="success").observe(duration)
+            # CDN Auth Token이 포함된 URL만 반환 (토큰 없이는 CDN이 접근 거부)
+            return RedirectResponse(url=cdn_url, status_code=status.HTTP_302_FOUND)
+    # CDN 미설정 또는 토큰 실패 시: 백엔드 스트리밍
+    # ⚠️ 보안: OBS URL을 절대 반환하지 않음. 백엔드를 통해 스트리밍하여 보안 보장.
     try:
         file_content = await photo_service.download_photo(photo)
+        # 성공: 백엔드 스트리밍
+        image_access_total.labels(access_type="authenticated", result="success").inc()
+        duration = time.perf_counter() - start_time
+        image_access_duration_seconds.labels(access_type="authenticated", result="success").observe(duration)
     except Exception as e:
+        image_access_total.labels(access_type="authenticated", result="denied").inc()
+        duration = time.perf_counter() - start_time
+        image_access_duration_seconds.labels(access_type="authenticated", result="denied").observe(duration)
         logger.error("Photo stream failed", exc_info=e, extra={"event": "photo", "photo_id": photo_id})
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to load photo",
         )
-    from fastapi.responses import Response
     return Response(
         content=file_content,
         media_type=photo.content_type or "application/octet-stream",
-        headers={
-            "Cache-Control": "private, max-age=60",
-        },
+        headers={"Cache-Control": "private, max-age=60"},
     )
 
 

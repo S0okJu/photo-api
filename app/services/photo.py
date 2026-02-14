@@ -14,8 +14,6 @@ from app.models.user import User
 from app.schemas.photo import PhotoCreate, PhotoUpdate, PhotoWithUrl
 from app.services.nhn_object_storage import get_storage_service
 from app.services.nhn_cdn import get_cdn_service
-from app.utils.security import create_image_access_token
-
 logger = logging.getLogger("app.photo")
 
 
@@ -56,8 +54,8 @@ class PhotoService:
         # Generate unique filename for storage
         file_ext = filename.rsplit(".", 1)[-1] if "." in filename else ""
         unique_filename = f"{uuid.uuid4().hex}.{file_ext}" if file_ext else uuid.uuid4().hex
-        # Storage path: image/{album_id}/{filename}
-        storage_path = f"image/{album_id}/{unique_filename}"
+        # Storage path: photo/photo/image/{album_id}/{filename} (컨테이너 내 경로)
+        storage_path = f"photo/photo/image/{album_id}/{unique_filename}"
         
         try:
             await self.storage.upload_file(
@@ -211,16 +209,10 @@ class PhotoService:
     async def get_photo_with_url(self, photo: Photo) -> PhotoWithUrl:
         """
         Get photo response with view URL.
-        If image_access_use_proxy: URL is backend proxy path with short-lived token.
-        Else: CDN URL with auth token (legacy; URL 유출 시 만료 전까지 제3자 열람 가능).
+        URL은 항상 /photos/{id}/image. 실제 이미지 접근 시 JWT 필요하며,
+        서버가 권한 확인 후 CDN으로 302 리다이렉트하므로 트래픽은 LB를 거치지 않음.
         """
-        settings = get_settings()
-        if settings.image_access_use_proxy:
-            token = create_image_access_token(photo.id)
-            url = f"/photos/{photo.id}/image?t={token}"
-        else:
-            url = await self.cdn.generate_auth_token_url(photo.storage_path)
-        
+        url = f"/photos/{photo.id}/image"
         return PhotoWithUrl(
             id=photo.id,
             owner_id=photo.owner_id,
@@ -276,8 +268,8 @@ class PhotoService:
         # Generate unique filename for storage
         file_ext = filename.rsplit(".", 1)[-1] if "." in filename else ""
         unique_filename = f"{uuid.uuid4().hex}.{file_ext}" if file_ext else uuid.uuid4().hex
-        # Storage path: image/{album_id}/{filename}
-        storage_path = f"image/{album_id}/{unique_filename}"
+        # Storage path: photo/photo/image/{album_id}/{filename} (컨테이너 내 경로)
+        storage_path = f"photo/photo/image/{album_id}/{unique_filename}"
         
         # Create photo record in database (pending upload)
         photo = Photo(
@@ -295,23 +287,23 @@ class PhotoService:
         await self.db.flush()
         await self.db.refresh(photo)
         
-        # Generate presigned URL
+        # Swift Temp URL 생성 (Swift CORS가 OPTIONS preflight 처리)
         try:
-            presigned_data = self.storage.generate_presigned_upload_url(
+            upload_data = self.storage.generate_temp_upload_url(
                 object_name=storage_path,
                 content_type=content_type,
             )
             
             logger.info(
-                "Presigned URL generated",
+                "Temp upload URL generated",
                 extra={"event": "photo", "photo_id": photo.id, "user_id": user.id}
             )
             
             return {
                 "photo_id": photo.id,
-                "upload_url": presigned_data["url"],
-                "upload_method": presigned_data["method"],
-                "upload_headers": presigned_data["headers"],
+                "upload_url": upload_data["url"],
+                "upload_method": upload_data["method"],
+                "upload_headers": upload_data.get("headers", {}),
                 "object_key": storage_path,
             }
             

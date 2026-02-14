@@ -28,9 +28,11 @@ from app.utils.prometheus_metrics import (
     setup_prometheus,
     pushgateway_loop,
 )
+from app.middlewares.rate_limit_middleware import setup_rate_limit_exception_handler
 from app.services.nhn_logger import get_logger_service
 from app.utils.logger import setup_logging, get_request_id, log_error, log_info
 from app.middlewares.logging_middleware import LoggingMiddleware
+from app.middlewares.active_sessions_middleware import ActiveSessionsMiddleware
 from app.utils.client_ip import get_client_ip, get_forwarded_proto, get_forwarded_host
 
 settings = get_settings()
@@ -107,6 +109,9 @@ Use the `/auth/login` endpoint to get a token.
 # Prometheus: FastAPI metrics + node info at /metrics
 setup_prometheus(app)
 
+# Rate limiting: 예외 처리 핸들러 등록
+setup_rate_limit_exception_handler(app)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -118,6 +123,8 @@ app.add_middleware(
 
 # Add structured logging middleware
 app.add_middleware(LoggingMiddleware)
+# 활성 세션 수: 인증된 요청 종료 시 Gauge 감소
+app.add_middleware(ActiveSessionsMiddleware)
 
 
 # Global exception handler

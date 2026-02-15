@@ -22,15 +22,19 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings
 from app.database import init_db, close_db
 from app.routers import auth_router, photos_router, albums_router, share_router
+from app.routers import health as health_router
 from app.utils.prometheus_metrics import (
     exceptions_total,
     ready,
     setup_prometheus,
     pushgateway_loop,
+    in_flight_requests,
 )
 from app.middlewares.rate_limit_middleware import setup_rate_limit_exception_handler
+from app.middlewares.request_tracking_middleware import RequestTrackingMiddleware
 from app.services.nhn_logger import get_logger_service
-from app.utils.logger import setup_logging, get_request_id, log_error, log_info
+from app.utils.logger import setup_logging, get_request_id, log_error, log_info, log_warning
+from app.utils.config_validator import validate_configuration
 from app.middlewares.logging_middleware import LoggingMiddleware
 from app.middlewares.active_sessions_middleware import ActiveSessionsMiddleware
 from app.utils.client_ip import get_client_ip, get_forwarded_proto, get_forwarded_host
@@ -45,7 +49,24 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     """Application lifespan: startup / shutdown."""
+    # Startup
     ready.set(1)
+    
+    # 설정 검증 (프로덕션 환경에서만)
+    try:
+        await validate_configuration()
+    except Exception as e:
+        log_error(
+            "Configuration validation failed",
+            error_type=type(e).__name__,
+            error_message=str(e),
+            error_code="CONFIG_VALIDATION_ERROR",
+            event="lifecycle",
+            exc_info=True,
+        )
+        ready.set(0)
+        raise
+    
     log_info(
         "Application startup completed",
         event="lifecycle",
@@ -61,14 +82,41 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     yield
 
+    # Shutdown
+    ready.set(0)  # Health check 즉시 실패
+    log_info("Application shutdown initiated", event="lifecycle")
+    
+    # 진행 중인 요청 완료 대기 (최대 30초)
+    # 실제 운영 환경에서는 로드밸런서가 새 요청을 차단하므로
+    # 진행 중인 요청만 완료하면 됨
+    shutdown_timeout = 30.0
+    shutdown_start = time.time()
+    
+    # 진행 중인 요청이 있는지 확인 (메트릭으로 확인)
+    while time.time() - shutdown_start < shutdown_timeout:
+        current_count = in_flight_requests._value.get()
+        if current_count == 0:
+            log_info(
+                "All in-flight requests completed",
+                event="lifecycle",
+            )
+            break
+        await asyncio.sleep(0.5)
+    else:
+        remaining = in_flight_requests._value.get()
+        if remaining > 0:
+            log_warning(
+                f"Shutdown timeout: {remaining} requests still in flight",
+                event="lifecycle",
+                remaining_requests=remaining,
+            )
+    
     pushgateway_task.cancel()
     try:
         await pushgateway_task
     except asyncio.CancelledError:
         pass
 
-    ready.set(0)
-    log_info("Application shutdown initiated", event="lifecycle")
     await logger_service.stop()
     await close_db()
 
@@ -125,6 +173,8 @@ app.add_middleware(
 app.add_middleware(LoggingMiddleware)
 # 활성 세션 수: 인증된 요청 종료 시 Gauge 감소
 app.add_middleware(ActiveSessionsMiddleware)
+# 진행 중인 요청 추적: Graceful shutdown용
+app.add_middleware(RequestTrackingMiddleware)
 
 
 # Global exception handler
@@ -168,6 +218,7 @@ app.include_router(auth_router)
 app.include_router(photos_router)
 app.include_router(albums_router)
 app.include_router(share_router)
+app.include_router(health_router.router)
 
 
 # Root endpoint
@@ -187,18 +238,7 @@ async def root():
     }
 
 
-# Health check endpoint
-@app.get(
-    "/health",
-    tags=["Health"],
-    summary="Health check",
-)
-async def health_check():
-    """
-    Health check endpoint for load balancer.
-    Returns 200 OK if the service is running.
-    """
-    return {"status": "healthy"}
+# Health check는 health_router로 이동됨
 
 
 # Debug endpoint for client IP

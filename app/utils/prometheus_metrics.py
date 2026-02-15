@@ -75,6 +75,13 @@ active_sessions = Gauge(
     registry=REGISTRY,
 )
 
+# 진행 중인 요청 수 (Graceful shutdown용)
+in_flight_requests = Gauge(
+    "photo_api_in_flight_requests",
+    "Number of requests currently being processed",
+    registry=REGISTRY,
+)
+
 # --- Rate Limiting ---
 rate_limit_hits_total = Counter(
     "photo_api_rate_limit_hits_total",

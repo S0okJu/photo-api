@@ -23,9 +23,22 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool, QueuePool
 
 from app.config import get_settings
-from app.utils.prometheus_metrics import db_errors_total
+from app.utils.prometheus_metrics import db_errors_total, REGISTRY, Gauge
 
 _logger = logging.getLogger("app.db")
+
+# DB 연결 풀 모니터링 메트릭
+db_pool_active_connections = Gauge(
+    "photo_api_db_pool_active_connections",
+    "Number of active database connections in pool",
+    registry=REGISTRY,
+)
+
+db_pool_waiting_requests = Gauge(
+    "photo_api_db_pool_waiting_requests",
+    "Number of requests waiting for database connection",
+    registry=REGISTRY,
+)
 
 settings = get_settings()
 
@@ -75,6 +88,34 @@ def _after_cursor_execute(conn, cursor, statement, parameters, context, executem
                 "Slow query",
                 extra={"event": "db", "ms": round(elapsed * 1000), "query": short_stmt},
             )
+
+
+# DB 연결 풀 모니터링 (PostgreSQL/MySQL만, SQLite는 제외)
+if "sqlite" not in _database_url and hasattr(engine.sync_engine, "pool"):
+    @event.listens_for(engine.sync_engine, "connect")
+    def _on_connect(dbapi_conn, connection_record):
+        """연결 체크아웃 시 호출."""
+        pool = engine.sync_engine.pool
+        if hasattr(pool, "size"):
+            db_pool_active_connections.set(pool.size())
+    
+    @event.listens_for(engine.sync_engine, "checkout")
+    def _on_checkout(dbapi_conn, connection_record, connection_proxy):
+        """연결 체크아웃 시 호출."""
+        pool = engine.sync_engine.pool
+        if hasattr(pool, "size"):
+            db_pool_active_connections.set(pool.size())
+        if hasattr(pool, "overflow"):
+            db_pool_waiting_requests.set(pool.overflow())
+    
+    @event.listens_for(engine.sync_engine, "checkin")
+    def _on_checkin(dbapi_conn, connection_record):
+        """연결 체크인 시 호출."""
+        pool = engine.sync_engine.pool
+        if hasattr(pool, "size"):
+            db_pool_active_connections.set(pool.size())
+        if hasattr(pool, "overflow"):
+            db_pool_waiting_requests.set(pool.overflow())
 
 
 # Create async session factory

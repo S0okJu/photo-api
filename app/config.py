@@ -146,6 +146,46 @@ class Settings(BaseSettings):
         description="Rate limit 버스트 허용량",
     )
     
+    # Retry Configuration
+    retry_max_attempts_storage: int = Field(
+        default=3,
+        description="Object Storage 재시도 최대 횟수",
+    )
+    retry_max_attempts_cdn: int = Field(
+        default=2,
+        description="CDN 재시도 최대 횟수",
+    )
+    retry_initial_delay: float = Field(
+        default=1.0,
+        description="재시도 초기 지연 시간 (초)",
+    )
+    retry_max_delay: float = Field(
+        default=10.0,
+        description="재시도 최대 지연 시간 (초)",
+    )
+    
+    # Timeout Configuration
+    storage_auth_timeout: float = Field(
+        default=30.0,
+        description="Object Storage 인증 타임아웃 (초)",
+    )
+    storage_upload_timeout: float = Field(
+        default=60.0,
+        description="Object Storage 업로드 타임아웃 (초)",
+    )
+    storage_download_timeout: float = Field(
+        default=60.0,
+        description="Object Storage 다운로드 타임아웃 (초)",
+    )
+    cdn_timeout: float = Field(
+        default=10.0,
+        description="CDN API 호출 타임아웃 (초)",
+    )
+    log_service_timeout: float = Field(
+        default=10.0,
+        description="Log 서비스 타임아웃 (초)",
+    )
+    
     # NHN Cloud Log & Crash
     nhn_log_appkey: str = Field(default="")
     nhn_log_url: str = Field(

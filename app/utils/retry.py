@@ -22,6 +22,7 @@ async def retry_with_backoff(
     exponential_base: float = 2.0,
     jitter: bool = True,
     retryable_exceptions: tuple[Type[Exception], ...] = (Exception,),
+    target: Optional[str] = None,
     *args,
     **kwargs,
 ) -> T:
@@ -36,6 +37,7 @@ async def retry_with_backoff(
         exponential_base: 지수 백오프 베이스
         jitter: 지터(랜덤 지연) 추가 여부
         retryable_exceptions: 재시도할 예외 타입
+        target: 재시도 대상 식별 (예: "storage.upload", "cdn.token") — 로그/대시보드용
         *args, **kwargs: 함수 인자
         
     Returns:
@@ -59,14 +61,17 @@ async def retry_with_backoff(
             
             # 마지막 시도면 예외 발생
             if attempt == max_attempts - 1:
+                extra_err = {
+                    "event": "retry",
+                    "attempt": attempt + 1,
+                    "max_attempts": max_attempts,
+                    "error_type": type(e).__name__,
+                }
+                if target is not None:
+                    extra_err["retry_target"] = target
                 logger.error(
                     f"Retry exhausted after {max_attempts} attempts",
-                    extra={
-                        "event": "retry",
-                        "attempt": attempt + 1,
-                        "max_attempts": max_attempts,
-                        "error_type": type(e).__name__,
-                    },
+                    extra=extra_err,
                     exc_info=True,
                 )
                 raise
@@ -81,15 +86,18 @@ async def retry_with_backoff(
             if jitter:
                 delay = delay * (0.5 + random.random() * 0.5)  # 50% ~ 150%
             
+            extra_warn = {
+                "event": "retry",
+                "attempt": attempt + 1,
+                "max_attempts": max_attempts,
+                "delay": delay,
+                "error_type": type(e).__name__,
+            }
+            if target is not None:
+                extra_warn["retry_target"] = target
             logger.warning(
                 f"Retry attempt {attempt + 1}/{max_attempts} after {delay:.2f}s",
-                extra={
-                    "event": "retry",
-                    "attempt": attempt + 1,
-                    "max_attempts": max_attempts,
-                    "delay": delay,
-                    "error_type": type(e).__name__,
-                },
+                extra=extra_warn,
             )
             
             await asyncio.sleep(delay)
@@ -107,6 +115,7 @@ def retry_sync(
     max_delay: float = 10.0,
     exponential_base: float = 2.0,
     retryable_exceptions: tuple[Type[Exception], ...] = (Exception,),
+    target: Optional[str] = None,
     *args,
     **kwargs,
 ) -> T:
@@ -120,6 +129,7 @@ def retry_sync(
         max_delay: 최대 지연 시간 (초)
         exponential_base: 지수 백오프 베이스
         retryable_exceptions: 재시도할 예외 타입
+        target: 재시도 대상 식별 (예: "storage.upload", "cdn.token") — 로그/대시보드용
         *args, **kwargs: 함수 인자
         
     Returns:
@@ -136,14 +146,17 @@ def retry_sync(
             last_exception = e
             
             if attempt == max_attempts - 1:
+                extra_err = {
+                    "event": "retry",
+                    "attempt": attempt + 1,
+                    "max_attempts": max_attempts,
+                    "error_type": type(e).__name__,
+                }
+                if target is not None:
+                    extra_err["retry_target"] = target
                 logger.error(
                     f"Sync retry exhausted after {max_attempts} attempts",
-                    extra={
-                        "event": "retry",
-                        "attempt": attempt + 1,
-                        "max_attempts": max_attempts,
-                        "error_type": type(e).__name__,
-                    },
+                    extra=extra_err,
                 )
                 raise
             
@@ -152,15 +165,18 @@ def retry_sync(
                 max_delay,
             )
             
+            extra_warn = {
+                "event": "retry",
+                "attempt": attempt + 1,
+                "max_attempts": max_attempts,
+                "delay": delay,
+                "error_type": type(e).__name__,
+            }
+            if target is not None:
+                extra_warn["retry_target"] = target
             logger.warning(
                 f"Sync retry attempt {attempt + 1}/{max_attempts} after {delay:.2f}s",
-                extra={
-                    "event": "retry",
-                    "attempt": attempt + 1,
-                    "max_attempts": max_attempts,
-                    "delay": delay,
-                    "error_type": type(e).__name__,
-                },
+                extra=extra_warn,
             )
             
             time.sleep(delay)

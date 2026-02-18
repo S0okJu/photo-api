@@ -266,43 +266,50 @@ Loki에서 `count_over_time(...)` 같은 쿼리는 **메트릭**(시간+값)만 
 
 **대상**: `/photos/*` — Presigned URL 발급, 업로드 확인, 직접 업로드, 이미지 조회(`/photos/{id}/image`). 업로드·다운로드 모두 포함.
 
+**가용성 시각화**: Image 대시보드는 **쓰기 가용성**(업로드·Presigned·확인)과 **읽기 가용성**(이미지 접근·다운로드)으로 나눠서 보는 구성을 권장합니다. 쓰기 장애(스토리지·Presigned 실패)와 읽기 장애(이미지 로딩·CDN 실패)의 원인이 다르므로, 요약 행과 패널을 두 블록으로 구분해 두면 장애 시나리오별로 빠르게 원인을 좁힐 수 있습니다.
+
 ### 6.1 Row 배치 및 패널
 
 | Row | 제목 | 패널 (좌→우) | 시각화 | 가로축 / 세로축 |
 |-----|------|----------------|--------|------------------|
-| **1** | **요약** | 업로드 성공률(%), 이미지 접근 성공률(%), 이미지 P95(초), Presigned URL 성공률(%) | Stat 4개 | — / %, 초 |
+| **1** | **요약 — 쓰기 가용성** | 업로드 성공률(%), Presigned URL 성공률(%), 업로드 확인 성공률(%) | Stat 3개 | — / % |
+| **1** | **요약 — 읽기 가용성** | 이미지 접근 성공률(%), 이미지 P95(초) | Stat 2개 | — / %, 초 |
 | **2** | **요청량** | Nginx: /photos 요청(가능 시), API: presigned/confirm/image 등 handler별 | Time series | 시간 / req/s 또는 건·분당 |
-| **3** | **업로드** | 업로드 시도·성공·실패(presigned vs direct), Presigned 발급·업로드 확인 성공률 | Time series 또는 Bar | 시간 또는 upload_method / 건·분당, % |
-| **4** | **이미지 접근(다운로드)** | 인증 이미지 접근 건수·성공률, P50/P95/P99 (공유 이미지 제외) | Time series | 시간 / 건·분당, %, 초(sec) |
+| **3** | **쓰기: 업로드** | 업로드 시도·성공·실패(presigned vs direct), Presigned 발급·업로드 확인 성공률 | Time series 또는 Bar | 시간 또는 upload_method / 건·분당, % |
+| **4** | **읽기: 이미지 접근(다운로드)** | 인증 이미지 접근 건수·성공률, P50/P95/P99 (공유 이미지 제외) | Time series | 시간 / 건·분당, %, 초(sec) |
 | **5** | **파일 크기** | 업로드 파일 크기 분포(P50/P95) 또는 버킷별 건수 | Time series 또는 Bar | 시간 또는 le / bytes, 건수 |
-| **6** | **에러** | /photos 5xx, 업로드 확인 실패, 이미지 접근 거부 | Time series | 시간 / 건·분당 또는 % |
+| **6** | **에러** | /photos 5xx, 업로드 확인 실패(쓰기), 이미지 접근 거부(읽기) | Time series | 시간 / 건·분당 또는 % |
 
 ### 6.2 패널별 넣을 메트릭·쿼리 (구체)
 
+**요약 Row 1**은 쓰기 가용성(Stat 3개)과 읽기 가용성(Stat 2개)을 한 줄에 나란히 두거나, 상단에 "쓰기 가용성" / "읽기 가용성" 라벨을 붙인 두 블록으로 배치하면 됩니다.
+
 | Row | 패널 제목 | 사용 메트릭 / PromQL | 시각화 | 소스 | 단위(Unit) | 비고 |
 |-----|-----------|----------------------|--------|------|------------|------|
-| **1** | 업로드 성공률(%) | `sum(rate(photo_api_photo_upload_total{result="success"}[5m])) / sum(rate(photo_api_photo_upload_total[5m])) * 100` | Stat | API | `percent (0-100)` | presigned+direct 합산 |
-| **1** | 이미지 접근 성공률(%) | `sum(rate(photo_api_image_access_total{result="success"}[5m])) / sum(rate(photo_api_image_access_total[5m])) * 100` | Stat | API | `percent (0-100)` | 인증(authenticated) 기준 |
-| **1** | 이미지 P95(초) | `histogram_quantile(0.95, sum(rate(photo_api_image_access_duration_seconds_bucket{result="success"}[5m])) by (le))` | Stat | API | `s` (초) | |
-| **1** | Presigned URL 성공률(%) | `sum(rate(photo_api_presigned_url_generation_total{result="success"}[5m])) / sum(rate(photo_api_presigned_url_generation_total[5m])) * 100` | Stat | API | `percent (0-100)` | |
+| **1 (쓰기)** | 업로드 성공률(%) | `sum(rate(photo_api_photo_upload_total{result="success"}[5m])) / sum(rate(photo_api_photo_upload_total[5m])) * 100` | Stat | API | `percent (0-100)` | presigned+direct 합산. **쓰기 가용성** |
+| **1 (쓰기)** | Presigned URL 성공률(%) | `sum(rate(photo_api_presigned_url_generation_total{result="success"}[5m])) / sum(rate(photo_api_presigned_url_generation_total[5m])) * 100` | Stat | API | `percent (0-100)` | **쓰기 가용성** |
+| **1 (쓰기)** | 업로드 확인 성공률(%) | `sum(rate(photo_api_photo_upload_confirm_total{result="success"}[5m])) / sum(rate(photo_api_photo_upload_confirm_total[5m])) * 100` | Stat | API | `percent (0-100)` | **쓰기 가용성** |
+| **1 (읽기)** | 이미지 접근 성공률(%) | `sum(rate(photo_api_image_access_total{result="success"}[5m])) / sum(rate(photo_api_image_access_total[5m])) * 100` | Stat | API | `percent (0-100)` | 인증(authenticated) 기준. **읽기 가용성** |
+| **1 (읽기)** | 이미지 P95(초) | `histogram_quantile(0.95, sum(rate(photo_api_image_access_duration_seconds_bucket{result="success"}[5m])) by (le))` | Stat | API | `s` (초) | **읽기 가용성** |
 | **2** | /photos 요청(분당) | `sum(rate(http_requests_total{handler=~"/photos.*"}[5m])) * 60` | Time series | API | `reqm` (건/분) | |
 | **2** | (선택) handler별 | `sum by (handler) (rate(http_requests_total{handler=~"/photos.*"}[5m])) * 60` | Time series | API | `reqm` (건/분) | presigned-url, confirm, image 등 구분 |
-| **3** | 업로드 건수(upload_method, result별) | `sum by (upload_method, result) (rate(photo_api_photo_upload_total[5m])) * 60` | Time series 또는 Bar | API | `reqm` (건/분) | |
-| **3** | 업로드 확인 성공률 | `sum(rate(photo_api_photo_upload_confirm_total{result="success"}[5m])) / sum(rate(photo_api_photo_upload_confirm_total[5m])) * 100` | Time series | API | `percent (0-100)` | 시간 / % |
-| **4** | 이미지 접근 건수(분당) | `sum(rate(photo_api_image_access_total{access_type="authenticated"}[5m])) * 60` | Time series | API | `reqm` (건/분) | **인증(로그인) 사용자만**. 공유 이미지 조회는 포함 안 됨 → Share 대시보드 `photo_api_share_link_image_access_total` 참고. |
-| **4** | 이미지 P50/P95/P99 | `histogram_quantile(0.5, sum(rate(photo_api_image_access_duration_seconds_bucket{result="success"}[5m])) by (le))` (0.95, 0.99 동일) | Time series | API | `s` (초) | Y축: 초(sec) |
+| **3** | 업로드 건수(upload_method, result별) | `sum by (upload_method, result) (rate(photo_api_photo_upload_total[5m])) * 60` | Time series 또는 Bar | API | `reqm` (건/분) | 쓰기 플로우 |
+| **3** | 업로드 확인 성공률 추이 | `sum(rate(photo_api_photo_upload_confirm_total{result="success"}[5m])) / sum(rate(photo_api_photo_upload_confirm_total[5m])) * 100` | Time series | API | `percent (0-100)` | 시간 / %. 쓰기 가용성 추이 |
+| **4** | 이미지 접근 건수(분당) | `sum(rate(photo_api_image_access_total{access_type="authenticated"}[5m])) * 60` | Time series | API | `reqm` (건/분) | **읽기**. 인증 사용자만. 공유 이미지는 Share 대시보드. |
+| **4** | 이미지 P50/P95/P99 | `histogram_quantile(0.5, sum(rate(photo_api_image_access_duration_seconds_bucket{result="success"}[5m])) by (le))` (0.95, 0.99 동일) | Time series | API | `s` (초) | 읽기 지연. Y축: 초(sec) |
 | **5** | 업로드 파일 크기 P50/P95 | `histogram_quantile(0.5, sum(rate(photo_api_photo_upload_file_size_bytes_bucket[5m])) by (le, upload_method))`, 0.95 동일 | Time series | API | `bytes` | upload_method별 시리즈 |
 | **6** | /photos 5xx(분당) | `sum(rate(http_requests_total{handler=~"/photos.*",status=~"5.."}[5m])) * 60` | Time series | API | `reqm` (건/분) | |
-| **6** | 이미지 접근 거부(분당) | `sum(rate(photo_api_image_access_total{result="denied"}[5m])) * 60` | Time series | API | `reqm` (건/분) | |
+| **6** | 업로드 확인 실패(분당) | `sum(rate(photo_api_photo_upload_confirm_total{result="failure"}[5m])) * 60` | Time series | API | `reqm` (건/분) | 쓰기 에러 |
+| **6** | 이미지 접근 거부(분당) | `sum(rate(photo_api_image_access_total{result="denied"}[5m])) * 60` | Time series | API | `reqm` (건/분) | 읽기 에러 |
 
 ### 6.3 배치 요약
 
-- Row 1: Stat 4개 — 업로드·이미지 접근·지연·Presigned.
+- **Row 1**: **쓰기 가용성** Stat 3개(업로드 성공률, Presigned URL 성공률, 업로드 확인 성공률) + **읽기 가용성** Stat 2개(이미지 접근 성공률, 이미지 P95). 한 줄에 나란히 두거나 "쓰기 / 읽기" 라벨로 블록 구분.
 - Row 2: Nginx + API 요청량.
-- Row 3: 업로드 플로우( presigned / direct, confirm 성공률).
-- Row 4: 이미지 접근(**인증만**) 건수·성공률·지연. 공유 링크로의 이미지 조회는 Share 대시보드에서 봄.
+- **Row 3 (쓰기)**: 업로드 플로우(presigned/direct, confirm 성공률 추이).
+- **Row 4 (읽기)**: 이미지 접근(인증만) 건수·성공률·지연(P50/P95/P99). 공유 링크 이미지 조회는 Share 대시보드.
 - Row 5: 파일 크기 분포(용량·비용 검토).
-- Row 6: 에러 추이.
+- Row 6: 에러 추이 — /photos 5xx, 쓰기(업로드 확인 실패), 읽기(이미지 접근 거부)를 시리즈별로 구분해 표시하면 원인 파악에 유리.
 
 ---
 

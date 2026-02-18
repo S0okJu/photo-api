@@ -128,7 +128,7 @@ class NHNObjectStorageService:
                             error_code="STORAGE_001",
                             upstream_service="nhn_storage_iam",
                             http_status=status_code,
-                            event="storage",
+                            event="storage_auth",
                             exc_info=True,
                         )
                         raise Exception("IAM 인증 응답을 파싱할 수 없습니다.")
@@ -157,7 +157,7 @@ class NHNObjectStorageService:
                             error_code=error_code,
                             upstream_service="nhn_storage_iam",
                             http_status=status_code,
-                            event="storage",
+                            event="storage_auth",
                             exc_info=False,
                         )
                         raise Exception(error_message)
@@ -175,7 +175,7 @@ class NHNObjectStorageService:
                             error_type="TokenError",
                             error_code="STORAGE_003",
                             upstream_service="nhn_storage_iam",
-                            event="storage",
+                            event="storage_auth",
                             exc_info=False,
                         )
                         raise Exception("IAM 토큰을 받을 수 없습니다.")
@@ -206,7 +206,7 @@ class NHNObjectStorageService:
                             error_type="TenantError",
                             error_code="STORAGE_004",
                             upstream_service="nhn_storage_iam",
-                            event="storage",
+                            event="storage_auth",
                             exc_info=False,
                         )
                         raise Exception("Tenant ID를 찾을 수 없습니다. NHN_STORAGE_TENANT_ID를 설정하세요.")
@@ -223,7 +223,7 @@ class NHNObjectStorageService:
                     error_code="STORAGE_005",
                     upstream_service="nhn_storage_iam",
                     http_status=e.response.status_code if hasattr(e, 'response') else None,
-                    event="storage",
+                    event="storage_auth",
                     exc_info=True,
                 )
                 raise Exception("IAM 인증에 실패했습니다.")
@@ -233,7 +233,7 @@ class NHNObjectStorageService:
                     error_type="NetworkError",
                     error_code="STORAGE_006",
                     upstream_service="nhn_storage_iam",
-                    event="storage",
+                    event="storage_auth",
                     exc_info=True,
                 )
                 raise Exception("IAM 인증 중 네트워크 오류가 발생했습니다.")
@@ -247,7 +247,7 @@ class NHNObjectStorageService:
                     error_message=error_msg,
                     error_code="STORAGE_007",
                     upstream_service="nhn_storage_iam",
-                    event="storage",
+                    event="storage_auth",
                     exc_info=True,
                 )
                 raise Exception(f"Storage authentication failed: {error_msg}")
@@ -295,16 +295,16 @@ class NHNObjectStorageService:
                         if create_response.status_code not in (201, 202):
                             logger.error(
                                 "Container create failed",
-                                extra={"event": "storage", "container": container_name, "status": create_response.status_code},
+                                extra={"event": "storage_container_create", "container": container_name, "status": create_response.status_code},
                             )
                     elif response.status_code not in (200, 204):
                         logger.error(
                             "Container check failed",
-                            extra={"event": "storage", "container": container_name, "status": response.status_code},
+                            extra={"event": "storage_container_check", "container": container_name, "status": response.status_code},
                         )
 
         except Exception as e:
-            logger.error("Container ensure failed", exc_info=e, extra={"event": "storage", "container": container_name})
+            logger.error("Container ensure failed", exc_info=e, extra={"event": "storage_container_ensure", "container": container_name})
     
     async def upload_file(
         self,
@@ -352,7 +352,7 @@ class NHNObjectStorageService:
                     if response.status_code not in (200, 201):
                         logger.error(
                             "File upload failed",
-                            extra={"event": "storage", "status": response.status_code, "object": object_name},
+                            extra={"event": "storage_upload", "status": response.status_code, "object": object_name},
                         )
                         raise Exception("File upload failed")
 
@@ -360,15 +360,15 @@ class NHNObjectStorageService:
                     return f"{container}/{object_name}"
 
         except httpx.TimeoutException:
-            logger.error("File upload timeout", extra={"event": "storage", "object": object_name})
+            logger.error("File upload timeout", extra={"event": "storage_upload", "object": object_name})
             raise Exception("File upload timeout")
         except httpx.HTTPError as e:
-            logger.error("File upload HTTP error", exc_info=e, extra={"event": "storage", "object": object_name})
+            logger.error("File upload HTTP error", exc_info=e, extra={"event": "storage_upload", "object": object_name})
             raise Exception("File upload failed")
         except Exception as e:
             if "File upload" in str(e):
                 raise
-            logger.error("File upload failed", exc_info=e, extra={"event": "storage", "object": object_name})
+            logger.error("File upload failed", exc_info=e, extra={"event": "storage_upload", "object": object_name})
             raise Exception("File upload failed")
     
     async def download_file(self, object_name: str) -> bytes:
@@ -409,21 +409,21 @@ class NHNObjectStorageService:
                     if response.status_code != 200:
                         logger.error(
                             "File download failed",
-                            extra={"event": "storage", "status": response.status_code, "object": object_name},
+                            extra={"event": "storage_download", "status": response.status_code, "object": object_name},
                         )
                         raise Exception(f"File download failed: HTTP {response.status_code}")
                     return response.content
 
         except httpx.TimeoutException:
-            logger.error("File download timeout", extra={"event": "storage", "object": object_name})
+            logger.error("File download timeout", extra={"event": "storage_download", "object": object_name})
             raise Exception("File download timeout")
         except httpx.HTTPError as e:
-            logger.error("File download HTTP error", exc_info=e, extra={"event": "storage", "object": object_name})
+            logger.error("File download HTTP error", exc_info=e, extra={"event": "storage_download", "object": object_name})
             raise Exception(f"File download failed: {str(e)}")
         except Exception as e:
             if "File download" in str(e):
                 raise
-            logger.error("File download failed", exc_info=e, extra={"event": "storage", "object": object_name})
+            logger.error("File download failed", exc_info=e, extra={"event": "storage_download", "object": object_name})
             raise
     
     async def delete_file(self, object_name: str) -> bool:
@@ -462,18 +462,18 @@ class NHNObjectStorageService:
                     if not success:
                         logger.error(
                             "File deletion failed",
-                            extra={"event": "storage", "status": response.status_code, "object": object_name},
+                            extra={"event": "storage_delete", "status": response.status_code, "object": object_name},
                         )
                     return success
 
         except httpx.TimeoutException:
-            logger.error("File deletion timeout", extra={"event": "storage", "object": object_name})
+            logger.error("File deletion timeout", extra={"event": "storage_delete", "object": object_name})
             return False
         except httpx.HTTPError as e:
-            logger.error("File deletion failed", exc_info=e, extra={"event": "storage", "object": object_name})
+            logger.error("File deletion failed", exc_info=e, extra={"event": "storage_delete", "object": object_name})
             return False
         except Exception as e:
-            logger.error("File deletion failed", exc_info=e, extra={"event": "storage", "object": object_name})
+            logger.error("File deletion failed", exc_info=e, extra={"event": "storage_delete", "object": object_name})
             return False
     
     async def file_exists(self, object_name: str) -> bool:
@@ -512,7 +512,7 @@ class NHNObjectStorageService:
                     return response.status_code == 200
 
         except Exception as e:
-            logger.error("File exists check failed", exc_info=e, extra={"event": "storage", "object": object_name})
+            logger.error("File exists check failed", exc_info=e, extra={"event": "storage_exists", "object": object_name})
             return False
     
     def _get_s3_client(self) -> boto3.client:
@@ -620,14 +620,14 @@ class NHNObjectStorageService:
             logger.error(
                 "Presigned POST generation failed",
                 exc_info=e,
-                extra={"event": "storage", "object": object_name}
+                extra={"event": "storage_presigned", "object": object_name}
             )
             raise Exception(f"Failed to generate presigned POST: {str(e)}")
         except Exception as e:
             logger.error(
                 "Presigned POST generation failed",
                 exc_info=e,
-                extra={"event": "storage", "object": object_name}
+                extra={"event": "storage_presigned", "object": object_name}
             )
             raise Exception(f"Failed to generate presigned POST: {str(e)}")
     

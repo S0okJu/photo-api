@@ -95,13 +95,13 @@ class NHNCDNService:
                     else:
                         logger.error(
                             "CDN auth token failed",
-                            extra={"event": "cdn", "status": response.status_code},
+                            extra={"event": "cdn_token", "status": response.status_code},
                         )
                         external_request_errors_total.labels(service="nhn_cdn").inc()
                         return None
 
         except httpx.HTTPError as e:
-            logger.error("CDN auth token API error", exc_info=e, extra={"event": "cdn"})
+            logger.error("CDN auth token API error", exc_info=e, extra={"event": "cdn_token"})
             external_request_errors_total.labels(service="nhn_cdn").inc()
             return None
     
@@ -165,7 +165,7 @@ class NHNCDNService:
         # 토큰 실패 시 None → 라우터에서 302 대신 백엔드 스트리밍 (SignatureDoesNotMatch/403 방지)
         logger.warning(
             "CDN auth token failed, caller should stream from backend",
-            extra={"event": "cdn", "path": cdn_path},
+            extra={"event": "cdn_token", "path": cdn_path},
         )
         return None
 
@@ -189,7 +189,7 @@ class NHNCDNService:
         if not self.settings.nhn_cdn_domain or not self.settings.nhn_cdn_app_key:
             logger.warning(
                 "generate_auth_token_url_sync: OBS URL 반환 (보안 위험)",
-                extra={"event": "cdn", "path": object_path}
+                extra={"event": "cdn_obs_fallback", "path": object_path}
             )
             return f"{self.settings.nhn_storage_url}/{self.settings.nhn_storage_container}/{object_path}"
         
@@ -215,7 +215,7 @@ class NHNCDNService:
         # ⚠️ 보안 경고: OBS URL을 반환하면 public OBS에 직접 접근 가능
         logger.warning(
             "generate_auth_token_url_sync: OBS URL 반환 (보안 위험, 토큰 캐시 없음)",
-            extra={"event": "cdn", "path": object_path}
+            extra={"event": "cdn_obs_fallback", "path": object_path}
         )
         return f"{self.settings.nhn_storage_url}/{self.settings.nhn_storage_container}/{object_path}"
 

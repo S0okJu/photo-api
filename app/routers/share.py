@@ -165,7 +165,7 @@ async def get_shared_album_image(
     try:
         file_content = await photo_service.download_photo(photo)
     except Exception as e:
-        logger.error("Shared photo stream failed", exc_info=e, extra={"event": "share", "photo_id": photo_id})
+        logger.error("Shared photo stream failed", exc_info=e, extra={"event": "share_stream", "photo_id": photo_id})
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to load photo")
     return Response(
         content=file_content,

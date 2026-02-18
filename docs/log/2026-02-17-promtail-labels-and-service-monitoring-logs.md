@@ -74,8 +74,8 @@
 |--------|-----------|----------------|----------|
 | **User (Auth)** | `http_path=~"/auth.*"` 또는 라벨 `path_prefix="/auth"` | event=user_login, user_registration, auth / http_status, client_ip | User (Auth) |
 | **Album** | `http_path=~"/albums.*"` 또는 `path_prefix="/albums"` | event, http_status, duration_ms | Album |
-| **Image** | `http_path=~"/photos.*"` 또는 `path_prefix="/photos"` | event=photo, storage, cdn / http_status, duration_ms | Image |
-| **Share** | `http_path=~"/share.*"` 또는 `path_prefix="/share"` | event=share / http_status, client_ip | Share |
+| **Image** | `http_path=~"/photos.*"` 또는 `path_prefix="/photos"` | event=photo_upload, photo_presigned, photo_stream 등 + level / http_status, duration_ms | Image |
+| **Share** | `http_path=~"/share.*"` 또는 `path_prefix="/share"` | event=share_link_create, share_access, share_stream + level / http_status, client_ip | Share |
 
 - **라벨 사용**: `{job="photo-api", path_prefix="/auth"}` 로 User 서비스만 선택 가능.  
 - **본문 필터**: 라벨 없이 쿼리 시 `{job="photo-api"} | json | http_path=~"/auth.*"`.

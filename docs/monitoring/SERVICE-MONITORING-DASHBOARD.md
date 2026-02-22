@@ -39,7 +39,7 @@
 | `photo_api_login_duration_seconds` | Histogram | 메트릭 (앱) | Time series | 시간 / 초(sec) | 로그인 지연. 인증 경험·DB/해싱 병목·공격 시 지연 이상 탐지. |
 | `photo_api_image_access_duration_seconds` | Histogram | 메트릭 (앱) | Time series | 시간 / 초(sec) | 이미지 로딩 성능. CDN vs 백엔드 효과·SLA(예: P95 &lt; 2초) 확인. |
 | `photo_api_share_link_access_duration_seconds` | Histogram | 메트릭 (앱) | Time series | 시간 / 초(sec) | 공유 링크 페이지 접근 지연. 토큰 검증·DB 쿼리 성능 점검. |
-| `photo_api_external_request_duration_seconds` | Histogram | 메트릭 (앱) | Time series | 시간 / 초(sec) | Object Storage·CDN·Log 등 외부 의존성 지연. 장애 시 원인 범위 좁히기. |
+| `photo_api_external_request_duration_seconds` | Histogram | 메트릭 (앱) | Time series (서비스·result별) | 시간 / 초(sec) | Object Storage·CDN·Log 등 외부 의존성 지연. result=success\|failure 로 성공/실패별 P95 분석. |
 | `photo_api_active_sessions` | Gauge | 메트릭 (앱) | Time series, Stat | 시간 / 동시 세션 수 | 동시 부하. 스케일·리소스 계획·과부하 전 알림. |
 
 **시각화 상세 (성능)**  
@@ -55,8 +55,11 @@
 | `http_requests_total{status=~"5.."}` | Counter | 메트릭 (Instrumentator) | Time series, Stat | 시간 / 건·초당 또는 비율(%) | 5xx 에러율. SLA·장애 감지 및 알림. |
 | `photo_api_exceptions_total` | Counter | 메트릭 (앱) | Time series | 시간 / 건·분당 | 미처리 예외. 버그·환경 이슈 조기 발견. |
 | `photo_api_db_errors_total` | Counter | 메트릭 (앱) | Time series | 시간 / 건·분당 | DB 연결·트랜잭션 실패. 연결 풀·DB 장애 대응. |
+| `photo_api_external_request_total` | Counter | 메트릭 (앱) | Time series (서비스·status별) | 시간 / 건·분당 | 외부 요청 수(성공/실패). 에러율·성공률 계산용. |
 | `photo_api_external_request_errors_total` | Counter | 메트릭 (앱) | Time series (서비스별) | 시간 / 건·분당 | 외부 API 실패. Object Storage·CDN·Log 장애 구분. |
 | `photo_api_log_queue_size` | Gauge | 메트릭 (앱, Custom Collector) | Time series, Stat | 시간 / 큐 길이(건) | 로그 백프레셔. 큐 폭주 시 메모리·로그 유실 방지. |
+
+**Circuit Breaker 메트릭** (`photo_api_circuit_breaker_*`): 상태(state), 연속 실패 수(consecutive_failures), 마지막 전이 시각(last_state_change_timestamp), 요청 수(success/failure/rejected), 상태 전이 횟수, 호출 지연. 상세·쿼리·알림은 `docs/monitoring/CIRCUIT-BREAKER-AND-EXTERNAL-SERVICE-METRICS.md` 참고.
 
 **로그 보완**: 예외·DB/외부 에러 발생 시 로그에서 스택 트레이스·요청 ID로 원인 추적.
 
@@ -96,7 +99,39 @@
 
 ---
 
-## 6. 리소스 (호스트)
+## 6. 비즈니스 성장 지표 (서비스 성장 추적)
+
+| 지표 | 타입 | 수집 방식 | 시각화 유형 | 가로축 / 세로축 | 수집 이유 (운영) |
+|------|------|-----------|-------------|------------------|-------------------|
+| `photo_api_users_total` | Gauge | 메트릭 (앱, 백그라운드 집계) | Time series, Stat | 시간 / 회원수 | 서비스 성장 추이. 회원가입 트렌드 분석. 활성 회원 비율 모니터링. |
+| `photo_api_albums_total` | Gauge | 메트릭 (앱, 백그라운드 집계) | Time series, Stat | 시간 / 앨범 수 | 앨범 생성 추이. 공유 앨범 비율 확인. 사용자당 평균 앨범 수. |
+| `photo_api_photos_total` | Gauge | 메트릭 (앱, 백그라운드 집계) | Time series, Stat | 시간 / 사진 수 | 사진 업로드 추이. 사용자당/앨범당 평균 사진 수. |
+| `photo_api_share_links_total` | Gauge | 메트릭 (앱, 백그라운드 집계) | Time series, Stat | 시간 / 공유 링크 수 | 공유 링크 생성 추이. 활성 공유 링크 비율. 공유 기능 사용률. |
+| `photo_api_object_storage_usage_bytes` | Gauge | 메트릭 (앱, 백그라운드 집계 + 실시간) | Time series, Stat | 시간 / 바이트(GB) | **용량 급증 탐지**. Object Storage 비용 관리. 성장 추이 분석. |
+| `photo_api_object_storage_usage_by_user_bytes` | Gauge | 메트릭 (앱, 백그라운드 집계 + 실시간) | Table, Bar chart | user_id / 바이트(GB) | **누가 많이 올렸는지** 식별. 이상 사용자 탐지. 사용자별 사용량 분포. |
+| `photo_api_photo_upload_size_total_bytes` | Counter | 메트릭 (앱, 실시간) | Time series, Heatmap | 시간 또는 user_id / 바이트(GB) | **언제부터 용량이 급증했는지** 추적. 시간별 업로드 용량 추이. 사용자별 업로드 패턴. |
+
+**시각화 상세 (비즈니스 메트릭)**  
+- **Time series**: 가로축 = 시간, 세로축 = 회원수/앨범 수/사진 수/용량. 서비스 성장 추이를 한눈에 파악.  
+- **Stat**: 현재 전체/활성 회원수, 전체/공유 앨범 수, 전체 사진 수, Object Storage 사용량(GB).  
+- **Table**: 사용자별 Object Storage 사용량 상위 N개. 누가 많이 올렸는지 식별.  
+- **Heatmap**: 가로축 = 시간, 세로축 = 사용자 ID, 색 = 업로드 용량. 시간대별 사용자별 업로드 패턴 분석.
+
+**핵심 모니터링 포인트:**
+1. **갑자기 Object Storage 사용량이 늘어났다**: `photo_api_object_storage_usage_bytes` Time series에서 급증 시점 확인
+2. **누가 사진을 많이 올렸을까**: `photo_api_object_storage_usage_by_user_bytes` Table에서 상위 사용자 확인
+3. **언제부터 용량이 급증한걸까**: `photo_api_photo_upload_size_total_bytes` Time series에서 rate 기반으로 시간별 업로드 용량 추이 확인
+4. **우리 서비스 회원수는 성장세일까**: `photo_api_users_total` Time series에서 회원수 증가 추이 확인
+5. **지금까지 만들어진 앨범 수는 몇개일까**: `photo_api_albums_total` Stat에서 현재 앨범 수 확인
+6. **공유 앨범은?**: `photo_api_albums_total{type="shared"}` Stat에서 공유 앨범 수 확인
+
+**알림 기준:**
+- **Warning**: Object Storage 사용량이 1시간 내 10% 이상 증가
+- **Critical**: Object Storage 사용량이 1시간 내 50% 이상 증가 또는 특정 사용자가 1시간 내 10GB 이상 업로드
+
+---
+
+## 7. 리소스 (호스트)
 
 | 지표 | 타입 | 수집 방식 | 시각화 유형 | 가로축 / 세로축 | 수집 이유 (운영) |
 |------|------|-----------|-------------|------------------|-------------------|
@@ -107,7 +142,7 @@
 
 ---
 
-## 7. 로그 기반 보완 (운영 관점)
+## 8. 로그 기반 보완 (운영 관점)
 
 | 용도 | 수집 방식 | 시각화 유형 | 수집 이유 (운영) |
 |------|-----------|-------------|-------------------|
@@ -119,7 +154,7 @@
 
 ---
 
-## 8. 시각화 유형·축 형식 요약
+## 9. 시각화 유형·축 형식 요약
 
 | 시각화 유형 | 가로축 | 세로축 | 단위 예시 | 사용 예 |
 |-------------|--------|--------|-----------|---------|
@@ -133,7 +168,7 @@
 
 ---
 
-## 9. SLA 대시보드 만드는 방법
+## 10. SLA 대시보드 만드는 방법
 
 SLA 대시보드는 **약속한 목표**와 **실제 수치**를 한 화면에서 비교하고, 기간별 달성 여부를 보기 위한 **전용 대시보드**로 구성합니다.
 
@@ -179,9 +214,11 @@ SLA 대시보드는 **약속한 목표**와 **실제 수치**를 한 화면에�
 
 ---
 
-## 10. 관련 문서
+## 11. 관련 문서
 
 - **지표 정의·알림 상세**: `HA_MONITORING_METRICS.md`
+- **비즈니스 관점 도메인 메트릭(전체 도메인·KPI·대시보드)**: `docs/monitoring/BUSINESS-METRICS-BY-DOMAIN.md`
+- **Circuit Breaker·외부 서비스 메트릭(쿼리·대시보드·알림)**: `docs/monitoring/CIRCUIT-BREAKER-AND-EXTERNAL-SERVICE-METRICS.md`
 - **Grafana 패널·쿼리·SLA 대시보드 구조(상세)**: `MONITORING_VISUALIZATION.md`
 - **로깅 구조·필드**: `LOGGING_IMPLEMENTATION_SUMMARY.md`
 - **Rate limiting 메트릭**: `RATE_LIMITING_IMPLEMENTATION.md`
